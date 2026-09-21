@@ -513,8 +513,8 @@ exits = ["ff status", "ff diff", "ff done --abandon", "ff resolve --abandon"]
 
 [[entry]]
 id = "held/unresolved"
-summary = "the resolution still has markers or produces another replay conflict"
-detail = "Edit the named files on the resolution session branch and run ff done again. The original branch has not received this resolution, and the hold and session remain open. The error may describe markers still present or a fix that creates a later conflict during replay. To discard the entire request, preserve wanted fixes and use ff resolve --abandon; that drops the hold too, so starting again requires reissuing the original rewrite."
+summary = "the resolution still has conflict markers standing"
+detail = "Edit the named files on the resolution session branch and run ff done again. The original branch has not received this resolution, and the hold and session remain open. This error names markers left standing only; a fix that uncovers the next conflict is not this error, since ff done then rolls the session to another round showing it. To discard the entire request, preserve wanted fixes and use ff resolve --abandon; that drops the hold too, so starting again requires reissuing the original rewrite."
 exits = ["ff status", "ff done", "ff resolve --abandon"]
 
 [[entry]]

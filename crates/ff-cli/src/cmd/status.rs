@@ -294,7 +294,14 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
                     }),
                     resolving.map(|(r, here)| ResolvingStatus {
                         verb: verb_of(&r.hold.intent).to_string(),
-                        conflicts: r.hold.paths.len(),
+                        // The round's own files when the record carries
+                        // them; a record from before rounds reads as the
+                        // hold's paths.
+                        conflicts: if r.files.is_empty() {
+                            r.hold.paths.len()
+                        } else {
+                            r.files.len()
+                        },
                         steps: r.steps.clone(),
                         session: r.session.clone(),
                         here,

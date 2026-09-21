@@ -68,4 +68,4 @@ A held arrival occurs when [`ff switch`](switch.md) cannot replay parked work on
 
 `--abandon` drops the hold and any open resolution session, returning to the original branch. `ff done --abandon` from the session is the way to close it without dropping the hold. Opening a rewrite-resolution session is two operations, creation and switching; two `ff undo` calls take it back. Landing or abandoning is one operation. [`ff history`](history.md) shows the available steps.
 
-Opening a session over a standing hold exits 0. Exit 3 is owed when this resolve recorded the hold itself: a merge of the base that conflicts. `held/none` exits 3 as every `held/` refusal does.
+Opening a session over a standing hold exits 0. Exit 3 is owed when this resolve recorded the hold itself: a merge of the base that conflicts. A `ff done` whose fix uncovers the next conflict rolls the session to another round over the same session and owes a 3 the same way, one operation and one undo back. `held/none` exits 3 as every `held/` refusal does.

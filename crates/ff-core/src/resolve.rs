@@ -605,6 +605,10 @@ pub(crate) fn open_session(
         format!("resolving the held {verb_name} on {branch}"),
     )?;
 
+    let mut files: Vec<String> = regions.iter().map(|r| r.path.clone()).collect();
+    files.sort();
+    files.dedup();
+
     let session_name = crate::petname::mint(repo)?;
     let record = held::Resolve {
         hold: held.clone(),
@@ -612,6 +616,8 @@ pub(crate) fn open_session(
         steps: chain.steps.iter().map(|s| s.subject.clone()).collect(),
         open,
         session: session_name.clone(),
+        resolutions: Vec::new(),
+        files: files.clone(),
     };
     let merging = match &held.intent {
         held::Intent::Merge { .. } => chain.steps.first().map(|s| s.subject.clone()),
@@ -655,10 +661,6 @@ pub(crate) fn open_session(
         },
         prov,
     )?;
-
-    let mut files: Vec<String> = regions.iter().map(|r| r.path.clone()).collect();
-    files.sort();
-    files.dedup();
 
     Ok((
         ResolveReport {

@@ -32,6 +32,8 @@ fn a_resolve() -> Resolve {
         steps: vec!["first".into(), "second".into(), "third".into()],
         open: Some("c".repeat(40)),
         session: "quiet-otter".into(),
+        resolutions: Vec::new(),
+        files: vec!["a.txt".into()],
     }
 }
 

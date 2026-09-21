@@ -218,6 +218,51 @@ pub fn run(ctx: &Ctx, abandon: bool, no_verify: bool) -> Result<()> {
                 crate::exit::held();
             }
         }
+        DoneOutcome::Rolled(report) => {
+            // Nothing landed: the fixes uncovered the next conflict, and the
+            // session rolled to another round showing it. The operation did
+            // not finish, so the shell owes a 3, the way an opening that
+            // recorded its own hold does.
+            if ctx.json {
+                let payload = serde_json::json!({
+                    "done": serde_json::Value::Null,
+                    "rolled": report,
+                    "undo": "ff undo",
+                });
+                crate::machine::emit("done", &payload)?;
+                crate::exit::held();
+                return Ok(());
+            }
+            let colored = crate::pager::color_enabled();
+            let conflicts: Vec<String> = report
+                .conflicts
+                .iter()
+                .map(|c| format!("\"{}\" now conflicts in {}", c.subject, c.paths.join(", ")))
+                .collect();
+            let fixed: Vec<String> = report.fixed.iter().map(|s| format!("\"{s}\"")).collect();
+            if fixed.is_empty() {
+                println!("{}", conflicts.join("; "));
+            } else {
+                println!("fixed {}; {}", fixed.join(", "), conflicts.join("; "));
+            }
+            if let Some(subject) = &report.tangled {
+                println!(
+                    "    {} of {} commits replayed; the rest waits on \"{}\"",
+                    report.steps, report.of, subject
+                );
+            }
+            for subject in &report.dropped {
+                println!("    \"{subject}\" is shown again: its fix followed the new conflict");
+            }
+            println!(
+                "    {}",
+                crate::render::paint_dim(
+                    "fix the markers, then ff done · ff done --abandon to drop it",
+                    colored
+                )
+            );
+            crate::exit::held();
+        }
     }
     Ok(())
 }

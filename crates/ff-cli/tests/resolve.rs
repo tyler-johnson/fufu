@@ -330,3 +330,116 @@ fn done_after_a_resolve_resumes_the_cascade_and_the_json_carries_it() {
         0
     );
 }
+
+/// A stack whose fix tangles: `c2` adds a line under `c1`'s, and the open
+/// change replaces `c1`'s line, so `ff absorb --into <c1>` conflicts there
+/// and the fix of `c1` makes `c2` conflict. Leaves the fixture on `main`
+/// with the session open at `c1`'s conflict.
+fn tangled_session(fx: &Fixture) {
+    fx.write("f.txt", "A\n");
+    let c1 = fx.commit("c1");
+    fx.write("f.txt", "A\nB\n");
+    fx.commit("c2");
+    fx.write("f.txt", "X\nB\n");
+
+    let held = ff(fx, &["absorb", "--into", &c1]);
+    assert_eq!(held.status.code(), Some(3), "{}", out(&held));
+    let opened = ff(fx, &["resolve"]);
+    assert!(opened.status.success(), "{}", out(&opened));
+    let text = stdout(&opened);
+    assert!(
+        text.contains("1 of 2 commits replayed; the rest waits on \"c2\""),
+        "the session shows the prefix: {text}"
+    );
+}
+
+#[test]
+fn done_rolls_a_tangled_resolution_to_the_next_round() {
+    let fx = repo();
+    tangled_session(&fx);
+    let head = fx
+        .git(&["symbolic-ref", "--short", "HEAD"])
+        .trim()
+        .to_string();
+    std::fs::write(fx.path().join("f.txt"), "X\n").unwrap();
+
+    // Round 1: the fix uncovers c2's conflict, so nothing lands and the
+    // session shows it.
+    let output = ff(&fx, &["done"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains("fixed \"c1\"; \"c2\" now conflicts in f.txt"),
+        "the report names the fix kept and the conflict shown: {text}"
+    );
+    assert!(
+        text.contains("fix the markers, then ff done"),
+        "and the way forward: {text}"
+    );
+    assert_eq!(
+        fx.git(&["symbolic-ref", "--short", "HEAD"]).trim(),
+        head,
+        "HEAD stays on the session"
+    );
+    let shown = std::fs::read_to_string(fx.path().join("f.txt")).unwrap();
+    assert!(
+        shown.contains("<<<<<<<"),
+        "the next conflict is shown: {shown}"
+    );
+    let status = ff(&fx, &["status"]);
+    assert!(
+        stdout(&status).contains("resolving: 1 conflict from ff absorb"),
+        "status counts the round: {}",
+        out(&status)
+    );
+
+    // One undo steps back a round, and redo forward again.
+    let undone = ff(&fx, &["undo"]);
+    assert!(undone.status.success(), "{}", out(&undone));
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("f.txt")).unwrap(),
+        "X\n",
+        "the fix is back"
+    );
+    let redone = ff(&fx, &["redo"]);
+    assert!(redone.status.success(), "{}", out(&redone));
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("f.txt")).unwrap(),
+        shown,
+        "the round is back"
+    );
+
+    // Round 2 lands both.
+    std::fs::write(fx.path().join("f.txt"), "X\nB\n").unwrap();
+    let landed = ff(&fx, &["done"]);
+    assert!(landed.status.success(), "{}", out(&landed));
+    let text = stdout(&landed);
+    assert!(
+        text.contains("resolved 2 conflicts"),
+        "both rounds' fixes are counted: {text}"
+    );
+    assert_eq!(fx.git(&["symbolic-ref", "--short", "HEAD"]).trim(), "main");
+    assert_eq!(fx.git(&["show", "HEAD~1:f.txt"]), "X\n");
+    assert_eq!(fx.git(&["show", "HEAD:f.txt"]), "X\nB\n");
+}
+
+#[test]
+fn done_rolled_json_envelope() {
+    let fx = repo();
+    tangled_session(&fx);
+    std::fs::write(fx.path().join("f.txt"), "X\n").unwrap();
+
+    let output = ff(&fx, &["--json", "done"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let v = json(&output);
+    assert_eq!(v["ff"], 1);
+    assert_eq!(v["cmd"], "done");
+    assert_eq!(v["data"]["done"], serde_json::Value::Null);
+    assert_eq!(v["data"]["rolled"]["fixed"], serde_json::json!(["c1"]));
+    assert_eq!(v["data"]["rolled"]["conflicts"][0]["subject"], "c2");
+    assert_eq!(v["data"]["rolled"]["conflicts"][0]["paths"][0], "f.txt");
+    assert_eq!(v["data"]["rolled"]["branch"], "main");
+    assert_eq!(v["data"]["rolled"]["steps"], 2);
+    assert_eq!(v["data"]["rolled"]["tangled"], serde_json::Value::Null);
+    assert_eq!(v["data"]["undo"], "ff undo");
+}

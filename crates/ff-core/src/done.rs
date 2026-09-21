@@ -32,9 +32,10 @@ use crate::futures;
 use crate::held::{self, Disposition, Effect, Held, Intent};
 use crate::hooks;
 use crate::model::{
-    AbandonReport, ArrivalReport, Cascade, DoneOutcome, DoneReport, HeadState, HeldReport, KeptHold,
+    AbandonReport, ArrivalReport, Cascade, DoneOutcome, DoneReport, HeadState, HeldReport,
+    KeptHold, RolledConflict, RolledReport,
 };
-use crate::ops::record::{SessionTransition, observe_refs};
+use crate::ops::record::{ResolveTransition, SessionTransition, observe_refs};
 use crate::ops::{OpKind, OpRecord, RefTransition, verb};
 use crate::park;
 use crate::refs;
@@ -200,6 +201,14 @@ fn tip_of(repo: &gix::Repository, branch: &str) -> Result<String> {
 /// time, every landed commit is clean, and the session branch, the hold on
 /// `branch`, and the record of the session are all cleared inside the
 /// landing's own operation, which also brings HEAD back.
+///
+/// A fix that uncovers the next conflict — a step the reader was never
+/// shown carries markers once the fixes are folded in, or the re-run
+/// tangles again — lands nothing and rolls the session to another round
+/// instead: the fixes so far are kept as the steps' resolutions on the
+/// session's record, and the session's tip moves to a marker commit
+/// carrying the re-run's tree. Every round is one operation, and the last
+/// one lands.
 fn finish_resolution(
     repo: &gix::Repository,
     rec: held::Recording<'_>,
@@ -221,21 +230,18 @@ fn finish_resolution(
         .map(|hex| gix::ObjectId::from_hex(hex.as_bytes()).map_err(Error::repo))
         .transpose()?;
     let plan = held::replan_at(repo, hold, Some(branch), open)?;
-    let chain = rewrite::chain(repo, plan.target, plan.tip, &plan.change, &[])?;
+    // The rounds before this one: their fixes are the steps' resolutions,
+    // and the chain the reader was shown is the chain run with them folded
+    // in. A carried fix whose block the step no longer writes is the same
+    // answer from the other side — the step's merge changed under it.
+    let carried = &resolve.resolutions;
+    let chain = match rewrite::chain(repo, plan.target, plan.tip, &plan.change, carried) {
+        Ok(chain) => chain,
+        Err(err) if rewrite::is_stale_resolution(&err) => return Err(moved(branch)),
+        Err(err) => return Err(err),
+    };
     if chain.tree != resolve.from {
-        return Err(Error::coded(
-            "held/moved",
-            format!(
-                "the repository changed while {branch} was resolving: these conflicts are not \
-                 the ones you were given"
-            ),
-            vec![
-                "ff status".into(),
-                "ff explain held/moved".into(),
-                "ff done --abandon".into(),
-                "ff resolve --abandon".into(),
-            ],
-        ));
+        return Err(moved(branch));
     }
 
     // 2. The reader's fixes, as a tree: the session branch's working copy.
@@ -290,15 +296,15 @@ fn finish_resolution(
         ));
     }
 
-    // 4. Re-run with the fixes folded into the steps that own them: this is
-    // the stack the landing will write.
-    let landed = rewrite::chain(
-        repo,
-        plan.target,
-        plan.tip,
-        &plan.change,
-        &attribution.resolutions,
-    )?;
+    // What the reader was shown this round, counted before anything moves.
+    let round_regions = rewrite::regions(repo, &chain)?;
+
+    // 4. Re-run with every fix folded into the step that owns it — the
+    // rounds before this one and this round's attribution: this is the
+    // stack a landing writes.
+    let mut combined = carried.clone();
+    combined.extend(attribution.resolutions.iter().cloned());
+    let landed = rewrite::chain(repo, plan.target, plan.tip, &plan.change, &combined)?;
 
     // The step whose tree the reader was actually shown: the last one the
     // FIRST run reached, which is the one that produced `chain.tree`. On a
@@ -311,7 +317,82 @@ fn finish_resolution(
         .map(|s| gix::ObjectId::from_hex(s.old.as_bytes()).map_err(Error::repo))
         .transpose()?;
 
-    refuse_if_stuck(repo, &landed, shown)?;
+    // A step the reader was never shown still carrying markers, or a re-run
+    // that tangles again, is the next round rather than a refusal: nothing
+    // lands, the fixes so far are kept, and the session rolls forward to the
+    // conflict they uncovered. A fix attributed at or past that step was
+    // made over content the next round changes — `apply_resolutions`
+    // refuses a block that no longer matches — so it is re-shown rather
+    // than stored. On a chain that ran whole, the shown step's fix is the
+    // working tree, never a resolution, so it is re-shown too.
+    if let Some(next) = next_conflict(repo, &landed, shown)? {
+        // The window's backup puts the pre-window index back on drop. It
+        // has to run before the round's index is written, and `landed()`
+        // never: nothing landed.
+        drop(window.take());
+        let subject_of = |step: usize| chain.steps.get(step).map(|s| s.subject.clone());
+        let mut fixed: Vec<String> = Vec::new();
+        for r in &attribution.resolutions {
+            if r.step < next
+                && let Some(subject) = subject_of(r.step)
+                && !fixed.contains(&subject)
+            {
+                fixed.push(subject);
+            }
+        }
+        let (kept, dropped): (Vec<_>, Vec<_>) = combined.into_iter().partition(|r| r.step < next);
+        let mut re_shown: Vec<String> = Vec::new();
+        for r in &dropped {
+            if let Some(subject) = subject_of(r.step)
+                && !re_shown.contains(&subject)
+            {
+                re_shown.push(subject);
+            }
+        }
+        if chain.tangled.is_none()
+            && let Some(last) = chain.steps.last()
+            && round_regions
+                .iter()
+                .any(|r| r.step + 1 == chain.steps.len())
+            && !re_shown.contains(&last.subject)
+        {
+            re_shown.push(last.subject.clone());
+        }
+        let next_subject = match landed.steps.get(next) {
+            Some(step) => step.subject.clone(),
+            None => landed
+                .tangled
+                .as_ref()
+                .map(|t| t.subject.clone())
+                .ok_or_else(|| Error::msg("internal: the next conflict names no step"))?,
+        };
+        let rolled = if dropped.is_empty() {
+            landed
+        } else {
+            rewrite::chain(repo, plan.target, plan.tip, &plan.change, &kept)?
+        };
+        let of = match &plan.change {
+            rewrite::Change::Merge { .. } => rolled.steps.len(),
+            _ => rewrite::stack_size(repo, plan.target, plan.tip, &plan.change)?,
+        };
+        return roll_round(
+            repo,
+            rec,
+            Roll {
+                branch,
+                session,
+                session_tip,
+                resolve,
+                rolled,
+                kept,
+                fixed,
+                dropped: re_shown,
+                next: next_subject,
+                of,
+                worktree_tree,
+            },
+        );
+    }
 
     // 5. Decide the trees: each step takes the tree the re-run gave it, and
     // the SHOWN step takes the working tree — it is what the reader typed, so
@@ -328,8 +409,8 @@ fn finish_resolution(
         trees.insert(old, worktree_tree);
     }
 
-    // What the reader fixed, counted before the landing moves anything.
-    let fixed = rewrite::regions(repo, &chain)?.len();
+    // What the reader fixed, every round counted.
+    let fixed = round_regions.len() + carried.len();
 
     // 6. Land through the verb that owns the rewrite, clearing the hold and
     // the session inside the landing's own operation. The verb does the
@@ -405,59 +486,259 @@ fn finish_resolution(
     }))
 }
 
-/// A step still carrying a marker means the reader's fix created a
-/// conflict further up the stack — one they were never shown, because the
-/// run that laid the markers down did not get that far or did not produce
-/// it. Nothing lands: the session stays open and the working tree stays
-/// theirs, so the way forward is to edit it again and re-run `ff done`.
-/// The shown step is exempt: its tree is the working tree, applied by the
-/// override in `finish_resolution`, and that is the same reason `attribute`
-/// returns no resolution for it.
-fn refuse_if_stuck(
+/// The `held/moved` refusal: the conflicts the reader was given are not the
+/// repository's conflicts any more.
+fn moved(branch: &str) -> Error {
+    Error::coded(
+        "held/moved",
+        format!(
+            "the repository changed while {branch} was resolving: these conflicts are not the \
+             ones you were given"
+        ),
+        vec![
+            "ff status".into(),
+            "ff explain held/moved".into(),
+            "ff done --abandon".into(),
+            "ff resolve --abandon".into(),
+        ],
+    )
+}
+
+/// The next conflict the fixes uncovered, as an index into `landed.steps`:
+/// the first step still carrying a marker once the fixes are folded in — a
+/// conflict the reader was never shown, because the run that laid the
+/// markers down did not get that far or did not produce it — or
+/// `landed.steps.len()` when the re-run tangles, the same answer from the
+/// other side: two conflicts land on one region, so the chain cannot even
+/// carry them forward to be shown. `None` when the stack lands. The shown
+/// step is exempt: its tree is the working tree, applied by the override
+/// in `finish_resolution`, and that is the same reason `attribute` returns
+/// no resolution for it.
+fn next_conflict(
     repo: &gix::Repository,
     landed: &rewrite::Chain,
     shown: Option<gix::ObjectId>,
-) -> Result<()> {
-    let mut stuck: Option<(gix::ObjectId, String)> = None;
-    for step in &landed.steps {
+) -> Result<Option<usize>> {
+    for (idx, step) in landed.steps.iter().enumerate() {
         let id = gix::ObjectId::from_hex(step.old.as_bytes()).map_err(Error::repo)?;
         if Some(id) == shown {
             continue;
         }
         for path in &step.paths {
-            if stuck.is_none() && rewrite::carries_markers(repo, step.tree, path)? {
-                stuck = Some((id, step.subject.clone()));
+            if rewrite::carries_markers(repo, step.tree, path)? {
+                return Ok(Some(idx));
             }
         }
     }
-    // A re-run that tangles is the same refusal from the other side: two
-    // conflicts land on one region, so the chain cannot even carry them
-    // forward to be shown.
-    if let Some(tangle) = &landed.tangled
-        && stuck.is_none()
-    {
-        stuck = Some((
-            gix::ObjectId::from_hex(tangle.old.as_bytes()).map_err(Error::repo)?,
-            tangle.subject.clone(),
-        ));
+    Ok(landed.tangled.as_ref().map(|_| landed.steps.len()))
+}
+
+/// What a round hands the roll: everything decided, nothing yet written.
+struct Roll<'a> {
+    branch: &'a str,
+    session: &'a str,
+    session_tip: gix::ObjectId,
+    resolve: &'a held::Resolve,
+    /// The chain the next round shows: the fixes kept so far folded in, the
+    /// conflict they uncovered standing as markers.
+    rolled: rewrite::Chain,
+    /// The resolutions the next round carries.
+    kept: Vec<rewrite::Resolution>,
+    /// Subjects of the steps whose fixes this round kept, oldest-first.
+    fixed: Vec<String>,
+    /// Subjects shown again: their fixes followed the new conflict.
+    dropped: Vec<String>,
+    /// The step that conflicts now, for the operation's summary.
+    next: String,
+    /// The size of the whole rewrite.
+    of: usize,
+    /// The working copy as this round read it, hooks run.
+    worktree_tree: gix::ObjectId,
+}
+
+/// Roll the session to its next round, as one operation: the session
+/// branch's tip moves to a fresh marker commit carrying the rolled tree
+/// over the held branch's own tip, the session's record moves with it
+/// carrying the kept resolutions, the working copy takes the new markers,
+/// and HEAD stays where it is. The hold on the held branch is untouched.
+/// Undo lands the working copy on the predecessor capture's tree, which is
+/// the reader's fix, and puts both records back.
+fn roll_round(
+    repo: &gix::Repository,
+    rec: held::Recording<'_>,
+    roll: Roll<'_>,
+) -> Result<DoneOutcome> {
+    let Roll {
+        branch,
+        session,
+        session_tip,
+        resolve,
+        rolled,
+        kept,
+        fixed,
+        dropped,
+        next,
+        of,
+        worktree_tree,
+    } = roll;
+    let now = rec.now;
+    let hold = &resolve.hold;
+    let verb = verb_of(hold);
+
+    // 1. The round's marker commit: the rolled tree over the held branch's
+    // own tip — the parent the first mint used, not the session tip's, since
+    // commits are allowed on a session — so the session still reads as one
+    // commit ahead of the branch it lands on.
+    let parent = refs::ref_target(repo, &format!("refs/heads/{branch}"))?
+        .ok_or_else(|| Error::msg(format!("internal: the held branch {branch} is gone")))?;
+    let sig = refs::user_signature(repo, now)?;
+    let new_marker = stash::write_commit(
+        repo,
+        rolled.tree,
+        vec![parent],
+        &sig,
+        format!("resolving the held {verb} on {branch}"),
+    )?;
+    let regions = rewrite::regions(repo, &rolled)?;
+    let mut files: Vec<String> = regions.iter().map(|r| r.path.clone()).collect();
+    files.sort();
+    files.dedup();
+    let old_session = branchmeta::read(repo, session)?
+        .session
+        .ok_or_else(|| Error::msg(format!("internal: {session} carries no session")))?;
+    let new_session = branchmeta::Session {
+        onto: branch.to_string(),
+        at: new_marker.to_string(),
+    };
+    let new_resolve = held::Resolve {
+        hold: hold.clone(),
+        from: rolled.tree.to_string(),
+        steps: rolled.steps.iter().map(|s| s.subject.clone()).collect(),
+        open: resolve.open.clone(),
+        session: session.to_string(),
+        resolutions: kept,
+        files: files.clone(),
+    };
+
+    // 2. The operation, write-ahead, on `edit::mint_session`'s template:
+    // the session ref's move, both records' transitions with both sides,
+    // HEAD and the hold untouched. The new marker and its tree, the
+    // reader's fix, and the tip being left are pinned.
+    let head = crate::head::head_state(repo)?;
+    let session_ref = format!("refs/heads/{session}");
+    let mut planned = observe_refs(repo)?;
+    planned
+        .refs
+        .insert(session_ref.clone(), new_marker.to_string());
+    let mut record = OpRecord::new(
+        "done",
+        format!("roll the resolution of {branch}: \"{next}\" now conflicts"),
+        now,
+    );
+    record.argv = rec.argv.clone();
+    record.refs = vec![RefTransition {
+        name: session_ref.clone(),
+        old: Some(session_tip.to_string()),
+        new: Some(new_marker.to_string()),
+    }];
+    record.resolve_session = Some(SessionTransition {
+        branch: session.to_string(),
+        old: Some(old_session),
+        new: Some(new_session.clone()),
+    });
+    record.resolving = Some(ResolveTransition {
+        branch: branch.to_string(),
+        old: Some(resolve.clone()),
+        new: Some(new_resolve.clone()),
+    });
+    let pins = [new_marker, rolled.tree, worktree_tree, session_tip];
+    verb::append_op(
+        repo,
+        OpKind::Op,
+        verb::VerbOp {
+            record,
+            planned,
+            tree: rolled.tree,
+            index_tree: rolled.tree,
+            branch: session.to_string(),
+            base: crate::snapshot::chain::base_commit(&head)?,
+            session: rec.prov.session.clone(),
+            pins: &pins,
+        },
+        now,
+    )?;
+
+    // 3. The session's tip, guarded by the tip the round read.
+    let edit = refs::update_edit(
+        &session_ref,
+        new_marker,
+        gix::refs::transaction::PreviousValue::MustExistAndMatch(gix::refs::Target::Object(
+            session_tip,
+        )),
+        &format!("done: roll the resolution of {branch}"),
+    )?;
+    match refs::commit_edits(repo, [edit], now)? {
+        refs::EditOutcome::Applied => {}
+        refs::EditOutcome::Contended => {
+            return Err(Error::coded(
+                "ref/contended",
+                "refs moved while rolling the resolution; nothing further was changed (re-run \
+                 ff done)",
+                vec![],
+            ));
+        }
     }
-    if let Some((id, subject)) = stuck {
-        return Err(Error::coded(
-            "held/unresolved",
-            format!(
-                "the fix leaves {} \"{}\" conflicting: nothing landed, so edit the working copy \
-                 again and re-run ff done",
-                crate::sha::short_oid(id),
-                subject
-            ),
-            vec![
-                "ff status".into(),
-                "ff done".into(),
-                "ff resolve --abandon".into(),
-            ],
-        ));
+
+    // 4. Metadata: the session's anchor moves, `forked_from` stays; the
+    // record on the held branch carries the round.
+    let mut meta = branchmeta::read(repo, session)?;
+    meta.session = Some(new_session);
+    branchmeta::write(repo, session, &meta)?;
+    held::set_resolving(repo, branch, Some(new_resolve))?;
+
+    // 5. Index and working copy: the new markers, over the fix as it stood.
+    crate::index::write_index_for_tree(repo, rolled.tree)?;
+    crate::worktree::apply_tree_transition(repo, worktree_tree, rolled.tree, &|_| true)?;
+
+    // 6. Derived state: the working copy is clean at the new tip, so the
+    // session's open ref describes nothing now — the fix it stated stays
+    // pinned by its own capture and by this operation. The futures cache is
+    // best-effort, as everywhere.
+    crate::open::clear(repo, session, now)?;
+    let _ = futures::cache::remove(repo, session);
+
+    // 7. The report: what this round kept, what conflicts now, per step.
+    let mut conflicts: Vec<RolledConflict> = Vec::new();
+    for (idx, step) in rolled.steps.iter().enumerate() {
+        let mut paths: Vec<String> = regions
+            .iter()
+            .filter(|r| r.step == idx)
+            .map(|r| r.path.clone())
+            .collect();
+        paths.sort();
+        paths.dedup();
+        if !paths.is_empty() {
+            conflicts.push(RolledConflict {
+                id: step.old.clone(),
+                subject: step.subject.clone(),
+                paths,
+            });
+        }
     }
-    Ok(())
+    Ok(DoneOutcome::Rolled(RolledReport {
+        branch: branch.to_string(),
+        session: session.to_string(),
+        verb: verb.to_string(),
+        fixed,
+        conflicts,
+        dropped,
+        files,
+        regions: regions.len(),
+        steps: rolled.steps.len(),
+        of,
+        tangled: rolled.tangled.map(|t| t.subject),
+        at: new_marker.to_string(),
+    }))
 }
 
 /// Land the decided stack through the verb that owns the rewrite. The

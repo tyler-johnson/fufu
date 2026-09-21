@@ -178,6 +178,29 @@ fn undo(fx: &Fixture, now: i64) {
     .unwrap();
 }
 
+fn redo(fx: &Fixture, now: i64) {
+    let repo = fx.repo();
+    ff_core::redo(
+        &repo,
+        &ff_core::RewindOptions {
+            force: false,
+            now: Some(now),
+            argv: vec!["ff".into(), "redo".into()],
+        },
+        &prov(),
+    )
+    .unwrap();
+}
+
+/// `ff done` over a resolution whose fix uncovers the next conflict,
+/// asserting it rolled to another round.
+fn rolled(fx: &Fixture, now: i64) -> ff_core::RolledReport {
+    match done_call(fx, now).unwrap() {
+        DoneOutcome::Rolled(r) => r,
+        other => panic!("a fix that uncovers the next conflict rolls the session, got {other:?}"),
+    }
+}
+
 fn stash_list(fx: &Fixture) -> String {
     fx.git(&["stash", "list"]).trim().to_string()
 }
@@ -283,6 +306,20 @@ fn absorb_stack(fx: &Fixture) -> (String, String) {
     fx.write("f.txt", "C\n");
     fx.write("g.txt", "gopen\n");
     (c1, c2)
+}
+
+/// A stack whose fix tangles: `c2` adds a line under `c1`'s, and the open
+/// change replaces `c1`'s line, so absorbing it into `c1` conflicts there
+/// and the fix makes `c2`'s addition land on a changed line. `ff resolve`
+/// shows `c1`'s conflict and stops before `c2`; fixing `c1` uncovers `c2`'s.
+/// Leaves the fixture on `main` with the change open. Returns `c1`.
+fn tangle_stack(fx: &Fixture) -> String {
+    fx.write("f.txt", "A\n");
+    let c1 = fx.commit("c1");
+    fx.write("f.txt", "A\nB\n");
+    let _c2 = fx.commit("c2");
+    fx.write("f.txt", "X\nB\n");
+    c1
 }
 
 /// `ff absorb --into <into> [<paths>]`, as a `MoveOptions`.
@@ -609,7 +646,7 @@ fn a_resolved_done_lands_the_session() {
 }
 
 #[test]
-fn a_tangled_stack_refuses_a_fix_that_still_conflicts_and_takes_one_that_does_not() {
+fn a_tangled_stack_rolls_to_the_step_behind_the_tangle_and_then_lands() {
     let fx = Fixture::new();
     ident(&fx);
     // Two commits on `feature` rewrite the same line of `f.txt`, and `main`
@@ -637,27 +674,36 @@ fn a_tangled_stack_refuses_a_fix_that_still_conflicts_and_takes_one_that_does_no
     );
 
     // A fix that resolves what the reader was shown, but leaves the commit
-    // behind the tangle unable to replay, lands nothing and says which commit
-    // is stuck. The session stays open, so the way forward is another edit.
-    let before_refs = head_refs(&fx);
+    // behind the tangle unable to replay, lands nothing: the session rolls
+    // to a round showing that commit's conflict, with the fix kept.
+    let feature_before = tip(&fx, "feature");
     fix(&fx, "f.txt", "R\nrest\n");
-    let err = done_call(&fx, NOW + 200).expect_err("a fix that still conflicts refuses");
-    assert_eq!(err.id(), "held/unresolved");
+    let round = rolled(&fx, NOW + 200);
+    assert_eq!(round.fixed, vec!["f1".to_string()]);
+    assert_eq!(round.conflicts.len(), 1, "{round:?}");
+    assert_eq!(round.conflicts[0].subject, "f2");
+    assert_eq!(round.conflicts[0].paths, vec!["f.txt".to_string()]);
+    assert_eq!(round.steps, 2);
+    assert_eq!(round.tangled, None);
+    assert_eq!(tip(&fx, "feature"), feature_before, "a roll lands nothing");
+    let shown = std::fs::read_to_string(fx.path().join("f.txt")).unwrap();
     assert!(
-        err.to_string().contains("f2"),
-        "the refusal names the commit that is still stuck: {err}"
+        shown.contains(OPENER),
+        "the next conflict is shown: {shown}"
     );
-    assert_eq!(head_refs(&fx), before_refs, "a refusal moves no ref");
+    assert!(shown.contains("f2"), "and it is f2's: {shown}");
 
-    // A tangle is not a dead end: a fix the tangled commit can replay over
-    // lands the whole stack, from the same still-open session.
+    // A tangle is not a dead end: fixing the round lands the whole stack,
+    // from the same still-open session.
     fix(&fx, "f.txt", "F2\nrest\n");
     let report = resolved(&fx, NOW + 300);
     assert!(report.replayed >= 1, "the stack landed: {report:?}");
     assert!(report.still_held.is_none(), "nothing is left waiting");
+    assert_eq!(report.fixed, 2, "both rounds' fixes are counted");
 
     let repo = fx.repo();
     let landed = commits_between(&repo, oid(&report.new_tip), oid(&tip(&fx, "main")));
+    assert_eq!(landed.len(), 2, "both commits landed: {landed:?}");
     for id in &landed {
         for (path, contents) in tree_files(&repo, oid(id)) {
             assert!(
@@ -666,6 +712,11 @@ fn a_tangled_stack_refuses_a_fix_that_still_conflicts_and_takes_one_that_does_no
             );
         }
     }
+    assert_eq!(
+        file_in(&repo, oid(&landed[1]), "f.txt").as_deref(),
+        Some("R\nrest\n"),
+        "f1 carries the first round's fix"
+    );
     assert_eq!(
         std::fs::read_to_string(fx.path().join("f.txt")).unwrap(),
         "F2\nrest\n"
@@ -2315,4 +2366,317 @@ fn a_held_run_resolves_and_lands() {
     let record = tip_record(&repo);
     assert_eq!(record.verb, "lift");
     assert_eq!(record.dropped.len(), 2, "{:?}", record.dropped);
+}
+
+// ---------------------------------------------------------------------------
+// Rounds: a fix that uncovers the next conflict rolls the session forward
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_fix_that_uncovers_the_next_conflict_rolls_the_session_to_another_round() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let c1 = tangle_stack(&fx);
+    hold_an_absorb(&fx, &c1, vec![]);
+
+    let opened = open_resolution(&fx, NOW + 100);
+    assert_eq!(opened.steps, 1, "the precondition is a tangle at c2");
+    assert_eq!(opened.tangled.as_deref(), Some("c2"));
+    let session = opened.session.clone();
+    let repo = fx.repo();
+    let main_before = tip(&fx, "main");
+    let hold_before = ff_core::held::of(&repo, "main").unwrap();
+    assert!(hold_before.is_some());
+    let session_tip_before = tip(&fx, &session);
+    let ops_before = verb_ops(&fx);
+
+    fix(&fx, "f.txt", "X\n");
+    let round = rolled(&fx, NOW + 200);
+
+    // The report: what was kept, what conflicts now, how far the chain got.
+    assert_eq!(round.branch, "main");
+    assert_eq!(round.session, session);
+    assert_eq!(round.verb, "absorb");
+    assert_eq!(round.fixed, vec!["c1".to_string()]);
+    assert_eq!(round.conflicts.len(), 1, "{round:?}");
+    assert_eq!(round.conflicts[0].subject, "c2");
+    assert_eq!(round.conflicts[0].paths, vec!["f.txt".to_string()]);
+    assert!(round.dropped.is_empty(), "no fix followed the new conflict");
+    assert_eq!(round.files, vec!["f.txt".to_string()]);
+    assert_eq!(round.regions, 1);
+    assert_eq!(round.steps, 2);
+    assert_eq!(round.of, 2);
+    assert_eq!(round.tangled, None);
+
+    // The session's tip moved to the new marker commit; HEAD stayed on it;
+    // the held branch and its hold did not move.
+    assert_eq!(tip(&fx, &session), round.at);
+    assert_ne!(round.at, session_tip_before);
+    assert_eq!(head_branch(&fx), session);
+    assert_eq!(tip(&fx, "main"), main_before);
+    assert_eq!(ff_core::held::of(&repo, "main").unwrap(), hold_before);
+    assert_eq!(
+        fx.git(&["rev-parse", &format!("{}^", round.at)]).trim(),
+        main_before,
+        "the new marker commit sits on the held branch's tip"
+    );
+
+    // The record carries the round: the new tree, the steps it reached, the
+    // kept resolution, and the round's files.
+    let resolving = ff_core::held::resolving(&repo, "main")
+        .unwrap()
+        .expect("the session is still open");
+    assert_eq!(
+        resolving.from,
+        fx.git(&["rev-parse", &format!("{}^{{tree}}", round.at)])
+            .trim(),
+        "`from` is the new marker tree"
+    );
+    assert_eq!(resolving.steps, vec!["c1".to_string(), "c2".to_string()]);
+    assert_eq!(resolving.resolutions.len(), 1);
+    assert_eq!(resolving.resolutions[0].step, 0);
+    assert_eq!(resolving.files, vec!["f.txt".to_string()]);
+    assert_eq!(resolving.session, session);
+    let session_meta = ff_core::branchmeta::read(&repo, &session).unwrap();
+    assert_eq!(
+        session_meta.session.as_ref().map(|s| s.at.as_str()),
+        Some(round.at.as_str()),
+        "the session's anchor moved with its tip"
+    );
+
+    // The working copy shows c2's conflict and nothing already fixed: the
+    // fix is inside the block's own side, not standing outside it.
+    let shown = std::fs::read_to_string(fx.path().join("f.txt")).unwrap();
+    assert!(
+        shown.starts_with(OPENER),
+        "the file opens on the block: {shown}"
+    );
+    assert!(
+        shown.contains("\nX\n"),
+        "the fix is the block's own side: {shown}"
+    );
+    assert!(shown.contains("c2"), "and the block is c2's: {shown}");
+
+    // One operation, recording the ref move and both transitions with both
+    // sides, so one undo steps back a round.
+    assert_eq!(verb_ops(&fx), ops_before + 1, "the roll is one operation");
+    let record = tip_record(&repo);
+    assert_eq!(record.verb, "done");
+    assert_eq!(record.refs.len(), 1);
+    assert_eq!(record.refs[0].name, format!("refs/heads/{session}"));
+    assert_eq!(
+        record.refs[0].old.as_deref(),
+        Some(session_tip_before.as_str())
+    );
+    assert_eq!(record.refs[0].new.as_deref(), Some(round.at.as_str()));
+    let st = record
+        .resolve_session
+        .as_ref()
+        .expect("the session's transition");
+    assert_eq!(st.branch, session);
+    assert!(st.old.is_some() && st.new.is_some());
+    let rt = record.resolving.as_ref().expect("the record's transition");
+    assert_eq!(rt.branch, "main");
+    assert!(rt.old.as_ref().unwrap().resolutions.is_empty());
+    assert_eq!(rt.new.as_ref().unwrap().resolutions.len(), 1);
+    assert!(record.held.is_none(), "the hold did not move");
+
+    // Undo: the previous round, with its markers replaced by the fix.
+    undo(&fx, NOW + 300);
+    assert_eq!(tip(&fx, &session), session_tip_before);
+    assert_eq!(head_branch(&fx), session);
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("f.txt")).unwrap(),
+        "X\n",
+        "the fix is back in the working copy"
+    );
+    let back = ff_core::held::resolving(&repo, "main").unwrap().unwrap();
+    assert!(back.resolutions.is_empty());
+    assert_eq!(back.steps, vec!["c1".to_string()]);
+
+    // Redo: the new round again.
+    redo(&fx, NOW + 400);
+    assert_eq!(tip(&fx, &session), round.at);
+    assert!(
+        std::fs::read_to_string(fx.path().join("f.txt"))
+            .unwrap()
+            .contains(OPENER)
+    );
+    assert_eq!(
+        ff_core::held::resolving(&repo, "main")
+            .unwrap()
+            .unwrap()
+            .resolutions
+            .len(),
+        1
+    );
+
+    // The round that leaves no conflict lands both, each clean.
+    fix(&fx, "f.txt", "X\nB\n");
+    let report = resolved(&fx, NOW + 500);
+    assert_eq!(report.fixed, 2, "every round's fixes are counted");
+    assert_eq!(head_branch(&fx), "main");
+    assert_eq!(tip(&fx, "main"), report.new_tip);
+    let new_tip = oid(&report.new_tip);
+    let new_c1 = oid(&fx.git(&["rev-parse", &format!("{}^", report.new_tip)]));
+    assert_eq!(file_in(&repo, new_c1, "f.txt").as_deref(), Some("X\n"));
+    assert_eq!(file_in(&repo, new_tip, "f.txt").as_deref(), Some("X\nB\n"));
+    for id in [new_tip, new_c1] {
+        for (path, contents) in tree_files(&repo, id) {
+            assert!(
+                !contents.contains(OPENER),
+                "{id} still carries markers in {path}"
+            );
+        }
+    }
+    assert!(ff_core::held::of(&repo, "main").unwrap().is_none());
+    assert!(ff_core::held::resolving(&repo, "main").unwrap().is_none());
+    assert!(
+        !head_refs(&fx)
+            .iter()
+            .any(|(name, _)| name.ends_with(&session)),
+        "the session branch is gone"
+    );
+}
+
+#[test]
+fn a_three_step_tangle_takes_three_rounds() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("f.txt", "A\n");
+    let c1 = fx.commit("c1");
+    fx.write("f.txt", "A\nB\n");
+    let _c2 = fx.commit("c2");
+    fx.write("f.txt", "A\nB2\n");
+    let _c3 = fx.commit("c3");
+    fx.write("f.txt", "X\nB2\n");
+    hold_an_absorb(&fx, &c1, vec![]);
+
+    let opened = open_resolution(&fx, NOW + 100);
+    assert_eq!(opened.steps, 1);
+    assert_eq!(opened.tangled.as_deref(), Some("c2"));
+
+    // Round 1: c1 fixed; c2 conflicts and c3 tangles behind it.
+    fix(&fx, "f.txt", "X\n");
+    let first = rolled(&fx, NOW + 200);
+    assert_eq!(first.fixed, vec!["c1".to_string()]);
+    assert_eq!(first.conflicts[0].subject, "c2");
+    assert_eq!(first.steps, 2);
+    assert_eq!(first.of, 3);
+    assert_eq!(first.tangled.as_deref(), Some("c3"));
+
+    // Round 2: c2 fixed; c3 conflicts.
+    fix(&fx, "f.txt", "X\nB\n");
+    let second = rolled(&fx, NOW + 300);
+    assert_eq!(second.fixed, vec!["c2".to_string()]);
+    assert_eq!(second.conflicts.len(), 1, "{second:?}");
+    assert_eq!(second.conflicts[0].subject, "c3");
+    assert_eq!(second.steps, 3);
+    assert_eq!(second.tangled, None);
+    let repo = fx.repo();
+    let resolving = ff_core::held::resolving(&repo, "main").unwrap().unwrap();
+    assert_eq!(
+        resolving.resolutions.len(),
+        2,
+        "both rounds' fixes are carried"
+    );
+    assert_eq!(
+        resolving.steps,
+        vec!["c1".to_string(), "c2".to_string(), "c3".to_string()]
+    );
+
+    // Round 3 lands all three, each clean.
+    fix(&fx, "f.txt", "X\nB2\n");
+    let report = resolved(&fx, NOW + 400);
+    assert_eq!(report.fixed, 3);
+    let new_tip = oid(&report.new_tip);
+    let new_c2 = oid(&fx.git(&["rev-parse", &format!("{}^", report.new_tip)]));
+    let new_c1 = oid(&fx.git(&["rev-parse", &format!("{}^^", report.new_tip)]));
+    assert_eq!(file_in(&repo, new_c1, "f.txt").as_deref(), Some("X\n"));
+    assert_eq!(file_in(&repo, new_c2, "f.txt").as_deref(), Some("X\nB\n"));
+    assert_eq!(file_in(&repo, new_tip, "f.txt").as_deref(), Some("X\nB2\n"));
+    assert!(ff_core::held::of(&repo, "main").unwrap().is_none());
+    assert!(ff_core::held::resolving(&repo, "main").unwrap().is_none());
+}
+
+#[test]
+fn markers_left_standing_in_a_later_round_still_refuse() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let c1 = tangle_stack(&fx);
+    hold_an_absorb(&fx, &c1, vec![]);
+    let session = open_resolution(&fx, NOW + 100).session;
+    fix(&fx, "f.txt", "X\n");
+    let round = rolled(&fx, NOW + 200);
+
+    let before_refs = head_refs(&fx);
+    let before_ops = verb_ops(&fx);
+    // No fix: the markers are exactly where the roll left them.
+    let err = done_call(&fx, NOW + 300).expect_err("unfixed markers refuse");
+    assert_eq!(err.id(), "held/unresolved");
+    assert!(err.to_string().contains("f.txt"), "{err}");
+    assert_eq!(head_refs(&fx), before_refs, "a refusal moves no ref");
+    assert_eq!(verb_ops(&fx), before_ops, "and appends no verb op");
+    assert_eq!(tip(&fx, &session), round.at, "the round stands");
+    let resolving = ff_core::held::resolving(&fx.repo(), "main")
+        .unwrap()
+        .expect("the session stays open");
+    assert_eq!(resolving.resolutions.len(), 1, "the kept fix stays kept");
+}
+
+#[test]
+fn a_repository_that_moved_in_a_later_round_refuses() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let c1 = tangle_stack(&fx);
+    hold_an_absorb(&fx, &c1, vec![]);
+    let session = open_resolution(&fx, NOW + 100).session;
+    fix(&fx, "f.txt", "X\n");
+    rolled(&fx, NOW + 200);
+    fix(&fx, "f.txt", "X\nB\n");
+
+    // The world moves under the second round: a commit lands on the held
+    // branch, so the conflicts the round was given are not the repository's.
+    switch_to(&fx, "main", NOW + 210);
+    fx.write("unrelated.txt", "later\n");
+    let _later = fx.commit("later");
+    switch_to(&fx, &session, NOW + 220);
+
+    let before_refs = head_refs(&fx);
+    let before_ops = verb_ops(&fx);
+    let err = done_call(&fx, NOW + 300).expect_err("a moved repository refuses");
+    assert_eq!(err.id(), "held/moved");
+    assert_eq!(head_refs(&fx), before_refs, "a refusal moves no ref");
+    assert_eq!(verb_ops(&fx), before_ops, "and appends no verb op");
+}
+
+#[test]
+fn done_abandon_after_a_roll_closes_the_session_and_keeps_the_hold() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let c1 = tangle_stack(&fx);
+    hold_an_absorb(&fx, &c1, vec![]);
+    let session = open_resolution(&fx, NOW + 100).session;
+    fix(&fx, "f.txt", "X\n");
+    rolled(&fx, NOW + 200);
+
+    let report = closed(&fx, NOW + 300);
+    assert_eq!(report.onto, "main");
+    assert_eq!(report.session, session);
+    assert_eq!(head_branch(&fx), "main", "HEAD is back on the held branch");
+    let repo = fx.repo();
+    assert!(
+        ff_core::held::of(&repo, "main").unwrap().is_some(),
+        "the hold stands"
+    );
+    assert!(
+        ff_core::held::resolving(&repo, "main").unwrap().is_none(),
+        "the session is closed"
+    );
+    assert!(
+        !head_refs(&fx)
+            .iter()
+            .any(|(name, _)| name.ends_with(&session)),
+        "the session branch is gone"
+    );
 }

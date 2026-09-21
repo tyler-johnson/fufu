@@ -13,6 +13,7 @@
 use std::collections::{HashMap, HashSet};
 
 use gix::bstr::ByteSlice;
+use serde::{Deserialize, Serialize};
 
 use super::markers::{Block, CHAIN_OURS, OPENER, blocks};
 use super::replay::{Change, Range, filtered, range_of, simplified, subject, their_of, tree_of};
@@ -69,8 +70,10 @@ pub struct Chain {
     pub tangled: Option<Tangle>,
 }
 
-/// One resolved region, folded back into the step that wrote it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// One resolved region, folded back into the step that wrote it. A round
+/// of `ff done` that rolls the session forward stores the round's
+/// resolutions on the session's record, so the record serializes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Resolution {
     /// Index into `Chain::steps`.
     pub step: usize,
@@ -799,10 +802,19 @@ pub(crate) fn stack_size(
         .count())
 }
 
+/// Whether `err` is `apply_resolutions` refusing a resolution whose block
+/// the step's tree no longer holds. A resolution carried from an earlier
+/// round can stop matching only because the step's merge changed under it,
+/// so the caller that carries them reads this as the world having moved.
+pub(crate) fn is_stale_resolution(err: &Error) -> bool {
+    err.to_string().contains(" to resolve at ")
+}
+
 /// Fold every resolution that belongs to step `idx` into `tree`, one at a
 /// time, threading the tree. A resolution whose block is not in the blob is
 /// an error: the caller handed the engine a resolution the engine cannot
-/// honor, and silently ignoring it would land the wrong content.
+/// honor, and silently ignoring it would land the wrong content. Both
+/// messages are what [`is_stale_resolution`] reads.
 fn apply_resolutions(
     repo: &gix::Repository,
     tree: gix::ObjectId,

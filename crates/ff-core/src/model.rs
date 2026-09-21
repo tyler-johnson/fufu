@@ -901,6 +901,53 @@ pub enum DoneOutcome {
     /// A resolution session ended: the reader's fixes landed, each in the
     /// step that owned it, and the whole stack moved one time.
     Resolved(ResolvedReport),
+    /// The fixes uncovered the next conflict: nothing landed, the fixes so
+    /// far are kept as the steps' resolutions, and the session rolled to
+    /// another round showing the conflict they uncovered. An outcome and
+    /// not an error, though the caller still exits 3: the operation did not
+    /// finish, and one `ff undo` steps back a round.
+    Rolled(RolledReport),
+}
+
+/// A resolution that rolled to its next round.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RolledReport {
+    /// The branch the hold stands on; untouched by the roll.
+    pub branch: String,
+    /// The session branch, still under HEAD, its tip moved to `at`.
+    pub session: String,
+    /// The verb that held.
+    pub verb: String,
+    /// Subjects of the steps whose fixes this round kept, oldest-first.
+    pub fixed: Vec<String>,
+    /// What conflicts now, per step, oldest-first.
+    pub conflicts: Vec<RolledConflict>,
+    /// Subjects shown again: their fixes were made over content the new
+    /// conflict changes, so they are re-shown rather than stored.
+    pub dropped: Vec<String>,
+    /// Files carrying conflict markers in the new round, sorted.
+    pub files: Vec<String>,
+    /// How many marked regions are waiting.
+    pub regions: usize,
+    /// How many steps the chain ran, and how many the rewrite has in all —
+    /// equal unless a tangle stopped it short.
+    pub steps: usize,
+    pub of: usize,
+    /// The commit the chain stopped before, when two conflicts landed on
+    /// one region.
+    pub tangled: Option<String>,
+    /// The new marker commit, full sha: the session's tip now.
+    pub at: String,
+}
+
+/// One step's conflict in a rolled round.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RolledConflict {
+    /// The commit being replayed, full sha.
+    pub id: String,
+    pub subject: String,
+    /// Files this step left markers in, sorted.
+    pub paths: Vec<String>,
 }
 
 /// A resolution that landed.

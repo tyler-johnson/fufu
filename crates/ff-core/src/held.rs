@@ -240,6 +240,18 @@ pub struct Resolve {
     /// back as expired, and `ff resolve --abandon` clears it.
     #[serde(default)]
     pub session: String,
+    /// The fixes earlier rounds attributed, kept as the steps' resolutions.
+    /// A fix that uncovers the next conflict rolls the session to another
+    /// round rather than landing, and the round's marker tree is the chain
+    /// run with these folded in, so `from` is that tree and every round
+    /// re-derives with them. Empty on a session in its first round.
+    #[serde(default)]
+    pub resolutions: Vec<crate::rewrite::Resolution>,
+    /// The files carrying markers in this round's tree, sorted and deduped:
+    /// the count `ff status` shows. Empty on a record written before rounds,
+    /// which reads as the hold's own paths.
+    #[serde(default)]
+    pub files: Vec<String>,
 }
 
 /// The hold standing on `branch`, if one does.

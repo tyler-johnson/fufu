@@ -75,7 +75,7 @@ The table lists all 133 catalog entries with their structured-error exit codes.
 | `held/op-revert` | 3 | refs no longer have the values required to invert this operation |
 | `held/resolving` | 3 | a resolution session for this hold is already open |
 | `held/rewrite-conflict` | 3 | a commit could not be replayed over the requested rewrite |
-| `held/unresolved` | 3 | the resolution still has markers or produces another replay conflict |
+| `held/unresolved` | 3 | the resolution still has conflict markers standing |
 | `held/unsupported` | 3 | the current open change prevents this hold from being resolved |
 | `hook/declined` | 1 | a commit-time Git hook exited unsuccessfully |
 | `hook/failed` | 1 | a client's hook file or plugin directory could not be written, or did not read back |

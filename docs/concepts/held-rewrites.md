@@ -34,13 +34,13 @@ You can switch away from the session and return later. Its unfinished edits park
 
 `ff done` applies each fix to its corresponding replay step and reruns the rewrite. When it succeeds, the rewritten branch receives the clean commits, the session branch is deleted, and you return to the original branch with its parked work restored or reported as a held arrival. Branches based on the rewritten branch can then follow through a [cascade](branches.md#the-cascade).
 
-Some conflicts require more than one round. When two replay steps conflict over the same unresolved region, fufu stops before creating overlapping marker blocks. Resolve the presented part and run `ff done`; any remaining work is held for another `ff resolve` round.
+Some conflicts take more than one round. Every conflict the replay can show at once is in one session. A step whose conflict only appears once an earlier one is fixed, because two steps conflict over the same region, is a further round: fufu stops before writing overlapping marker blocks and shows the steps before it. Each `ff done` advances one round: it keeps the fixes made so far as the steps' resolutions and shows the next conflict on the same session, exit 3, with nothing landed. One [`ff undo`](../reference/cli/undo.md) steps back a round, with that round's markers and your fix of them. The round that leaves no conflict lands.
 
 ## Abandoning or undoing a resolution
 
 `ff resolve --abandon` drops the held rewrite and an open resolution session, returning from the session if needed. It works from the session or the held branch. [`ff done --abandon`](../reference/cli/done.md) from the session closes only the session: the hold stays, and `ff resolve` opens a fresh session over it.
 
-Opening a rewrite session takes two operations: creating the session branch and switching to it. One [`ff undo`](../reference/cli/undo.md) returns to the original branch; another removes the newly created session. Landing, closing, or abandoning is one operation, so one undo restores the session and its recorded fixes either way, and the hold with them when it was dropped. [Snapshot coverage and retention](snapshots-and-undo.md#coverage-and-limits) apply.
+Opening a rewrite session takes two operations: creating the session branch and switching to it. One `ff undo` returns to the original branch; another removes the newly created session. Landing, closing, or abandoning is one operation, so one undo restores the session and its recorded fixes either way, and the hold with them when it was dropped. [Snapshot coverage and retention](snapshots-and-undo.md#coverage-and-limits) apply.
 
 ## Parked-change arrival
 
@@ -82,7 +82,7 @@ The drop or the remap rides the rewrite's own operation, so one `ff undo` takes 
 
 ## How conflicts reach the session
 
-fufu replays commits in memory before updating the branch. During resolution it carries unresolved regions forward as literal marker content, letting later commits apply around them. A conflict already fixed by a later commit can disappear before the session opens. The remaining regions are presented together, except where overlapping conflicts require another round.
+fufu replays commits in memory before updating the branch. During resolution it carries unresolved regions forward as literal marker content, letting later commits apply around them. A conflict already fixed by a later commit can disappear before the session opens. The remaining regions are presented together, except where overlapping conflicts take another round on the same session.
 
 <a id="why-not-a-conflicted-commit"></a>
 

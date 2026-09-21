@@ -421,9 +421,10 @@ one time, every landed commit clean, no conflicted state ever existing in the
 graph. When two commits conflict on the same region the carried markers do not
 nest, they interleave — the earlier block stops bracketing anything — which is
 jj's notorious ergonomic wart wearing git's clothes. So the chain stops rather
-than write one: `ff resolve` presents the steps before the tangle, and what is
-left is held again. A stack of tangles unwinds one round at a time, without
-anyone having to know the word. `ff resolve --step` keeps the sequential
+than write one: `ff resolve` presents the steps before the tangle, and `ff done`
+materializes what is left as the next round on the same session, the fixes so
+far kept as the steps' resolutions. A stack of tangles unwinds one round at a
+time, one operation and one undo each, without anyone having to know the word. `ff resolve --step` keeps the sequential
 per-commit mode for when that is the shape you want anyway.
 
 What a hold records is the verb's own question — the branch, the target, what it
@@ -984,9 +985,9 @@ when a machine with only `ff` on it is a working development machine.
 - **Resolution absorb-back edges** — settled: an edit outside every marked
   region belongs to the last step, because the marker tree *is* the
   post-rewrite tip's tree, so nothing lands in a commit the reader never looked
-  at. What stays open is the second round — a tangle is held again rather than
-  materialized, so the reader fixes what they were shown and is told there is
-  more, without being shown it until they ask.
+  at. The second round is settled too: a tangle is materialized as the next round
+  on the same session rather than held again, so the reader fixes what they
+  were shown and `ff done` shows them the next conflict.
 - **Edit-session boundaries** — fufu's own verbs are settled (close verbs
   attempt `done` land-if-clean; `ff switch` parks the session; explicit
   abandon), but: what a *foreign* switch or commit does to an open session;
