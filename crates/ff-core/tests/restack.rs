@@ -1988,13 +1988,15 @@ fn a_merge_that_carried_an_edit_flattens_to_a_commit() {
     );
 }
 
-/// A child that merged its parent follows the parent's restack: its merge
-/// of the parent's old tip maps to the parent's rewritten self, ends up
-/// beneath the branch side, and goes as empty.
+/// A child that merged its parent follows the parent's restack under a
+/// `replay` policy: its merge of the parent's old tip maps to the parent's
+/// rewritten self, ends up beneath the branch side, and goes as empty.
+/// Under the default `auto` the merge leaves it standing instead.
 #[test]
 fn a_cascade_child_that_merged_its_parent_follows_and_flattens() {
     let fx = Fixture::new();
     ident(&fx);
+    fx.set_config("fufu.child.pull", "replay");
     fx.write("root.txt", "root\n");
     fx.commit("root");
 

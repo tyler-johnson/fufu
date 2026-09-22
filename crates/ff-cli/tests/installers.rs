@@ -1271,7 +1271,10 @@ fn the_opencode_plugin_round_trips() {
     let said = text(&out);
     assert!(said.contains("plugin written to"), "{said:?}");
     assert!(said.contains("skill written to"), "{said:?}");
-    assert!(said.contains("the briefing is standing"), "{said:?}");
+    assert!(
+        said.contains("the briefing is included in the system prompt on every model call"),
+        "{said:?}"
+    );
     assert!(said.contains("restart OpenCode to load it"), "{said:?}");
 
     let body = std::fs::read_to_string(&plugin).expect("the plugin file");
@@ -1312,7 +1315,7 @@ fn the_opencode_plugin_round_trips() {
     assert!(row.contains("wired (plugin)"), "{row:?}");
     assert!(row.contains(", skill"), "{row:?}");
     assert!(
-        listing.contains("the briefing is standing"),
+        listing.contains("the briefing is included in the system prompt on every model call"),
         "the standing briefing is on the row: {listing:?}"
     );
 
