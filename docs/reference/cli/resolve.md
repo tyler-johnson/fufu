@@ -1,6 +1,6 @@
 # ff resolve
 
-Open the current branch's held rewrite for conflict resolution. Resolve puts the conflicts into the working copy as labeled markers. Edit them, then run [`ff done`](done.md); repeat if it shows another round of conflicts. With no hold, resolve can also merge base updates into a branch that already contains a merge of that base.
+Open the current branch's held rewrite for conflict resolution. Resolve puts the conflicts into the working copy as labeled markers. Edit them, then run [`ff done`](done.md); repeat if it shows another round of conflicts. With no hold, resolve can also take base updates into a branch whose `fufu.pull` policy is `merge`, or `auto` with a merge among its commits.
 
 ## Usage
 
@@ -54,7 +54,7 @@ If a held replay now applies cleanly, resolve releases the hold instead. Re-run 
 
 ## Taking the base in
 
-An existing hold takes priority. Without a hold, resolve merges base updates only when this branch is behind its base and the commits since their fork include a merge of that base. Switch to the branch first; only the current branch is updated. A linear branch behind its base needs [`ff restack`](restack.md) instead. An up-to-date branch, one with no base or shared history, or an editing session is refused with an explanation.
+An existing hold takes priority. Without a hold, resolve merges base updates only when this branch is behind its base and its [`fufu.pull`](../config.md#common-settings) policy resolves to `merge`, or to `auto` with any merge among the commits since their fork. Switch to the branch first; only the current branch is updated. A branch resolving to `replay`, or to `auto` on a straight line, is [`ff restack`](restack.md)'s, and the refusal names the policy and where it was set. An up-to-date branch, one with no base or shared history, or an editing session is refused with an explanation.
 
 The new commit has the branch's tip first and the base's tip second, your author identity, a change ID, and a signature when `commit.gpgsign` is enabled. Its subject is `merge <base> into <branch>`. Existing commits are preserved and open work is reapplied over the merge. One [`ff undo`](undo.md) removes it. No commit hook runs for this direct merge.
 

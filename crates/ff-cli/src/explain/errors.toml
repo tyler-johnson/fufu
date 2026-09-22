@@ -496,7 +496,7 @@ exits = ["ff status", "ff switch <held-branch>", "ff help resolve"]
 [[entry]]
 id = "held/none"
 summary = "the current branch has no held request to resolve, and no merge of its base to continue"
-detail = "Check ff status and switch to the branch whose hold you intended to resolve. Do not infer a hold from exit 3 alone: op-revert applicability refusals create none. A parked-change arrival resolved in place has also already cleared its hold; edit its remaining markers directly without ff done. If resolve previously released a now-clean rewrite, rerun the original rewrite command to apply it. With no hold, ff resolve has one more job: on a branch whose commits hold a merge of its base and that is behind it, it merges the base in. A branch on a straight line behind its base is ff restack's, and one up to date with its base has nothing to take in; the message says which."
+detail = "Check ff status and switch to the branch whose hold you intended to resolve. Do not infer a hold from exit 3 alone: op-revert applicability refusals create none. A parked-change arrival resolved in place has also already cleared its hold; edit its remaining markers directly without ff done. If resolve previously released a now-clean rewrite, rerun the original rewrite command to apply it. With no hold, ff resolve has one more job: on a branch behind its base whose fufu.pull policy is merge, or auto with a merge among its commits, it merges the base in. A branch whose policy replays it is ff restack's, and one up to date with its base has nothing to take in; the message says which."
 exits = ["ff status", "ff log", "ff restack"]
 
 [[entry]]

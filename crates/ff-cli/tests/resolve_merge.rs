@@ -1,8 +1,9 @@
 //! `ff resolve`'s merge door, end to end against the real `ff` binary: on a
-//! branch with no hold whose commits hold a merge of its base, resolve takes
-//! the base in by one merge commit and exits 0; a conflicting auto-merge
-//! records the hold and opens the session in one step, exit 3; `ff done`
-//! lands the merge; a linear branch refuses naming `ff restack`.
+//! branch with no hold whose `fufu.pull` policy leaves it standing behind
+//! its base, resolve takes the base in by one merge commit and exits 0; a
+//! conflicting auto-merge records the hold and opens the session in one
+//! step, exit 3; `ff done` lands the merge; a branch the policy replays
+//! refuses naming `ff restack`, the policy, and its source.
 
 use std::path::Path;
 use std::process::{Command, Output};
@@ -105,6 +106,38 @@ fn conflicting_side(fx: &Fixture) {
     fx.write("c.txt", "three\n");
     fx.commit("m2");
     fx.git(&["switch", "-q", "side"]);
+}
+
+/// Standing on `feature`, one commit past `main`'s old tip, with `main`
+/// moved since: a straight line behind its base.
+fn linear_behind(fx: &Fixture) {
+    fx.write("f.txt", "one\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("f.txt", "two\n");
+    fx.commit("f1");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("g.txt", "g\n");
+    fx.commit("m1");
+    fx.git(&["switch", "-q", "feature"]);
+}
+
+/// Standing on `side`, whose only merge is of a sibling `sib`, with `main`
+/// moved since the fork: no merge of `main` anywhere in `side`'s range.
+fn sibling_merged_side(fx: &Fixture) {
+    fx.write("base.txt", "base\n");
+    fx.commit("base");
+    fx.git(&["branch", "side"]);
+    fx.git(&["branch", "sib"]);
+    fx.write("m1.txt", "m1\n");
+    fx.commit("m1");
+    fx.git(&["switch", "-q", "sib"]);
+    fx.write("k1.txt", "k1\n");
+    fx.commit("k1");
+    fx.git(&["switch", "-q", "side"]);
+    fx.write("s1.txt", "s1\n");
+    fx.commit("s1");
+    fx.git(&["merge", "-q", "--no-edit", "sib"]);
 }
 
 #[test]
@@ -251,15 +284,7 @@ fn done_abandon_closes_the_merge_session_and_keeps_the_hold() {
 #[test]
 fn a_linear_branch_refuses_naming_restack() {
     let fx = repo();
-    fx.write("f.txt", "one\n");
-    fx.commit("base");
-    fx.git(&["switch", "-q", "-c", "feature"]);
-    fx.write("f.txt", "two\n");
-    fx.commit("f1");
-    fx.git(&["switch", "-q", "main"]);
-    fx.write("g.txt", "g\n");
-    fx.commit("m1");
-    fx.git(&["switch", "-q", "feature"]);
+    linear_behind(&fx);
 
     let output = ff(&fx, &["--json", "resolve"]);
     assert_eq!(output.status.code(), Some(3), "{}", out(&output));
@@ -267,4 +292,102 @@ fn a_linear_branch_refuses_naming_restack() {
     assert_eq!(v["error"]["id"], "held/none");
     let message = v["error"]["message"].as_str().unwrap_or_default();
     assert!(message.contains("ff restack"), "got: {message}");
+    assert!(message.contains("(auto)"), "got: {message}");
+}
+
+#[test]
+fn a_merge_policy_takes_a_straight_line_base_in_and_undoes() {
+    let fx = repo();
+    linear_behind(&fx);
+    fx.set_config("fufu.pull", "merge");
+    let feature_before = tip(&fx, "feature");
+    let main_tip = tip(&fx, "main");
+
+    let output = ff(&fx, &["resolve"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("merged main into feature at"), "got: {text}");
+    let parents: Vec<String> = fx
+        .git(&["rev-list", "--parents", "-1", "feature"])
+        .split_whitespace()
+        .skip(1)
+        .map(String::from)
+        .collect();
+    assert_eq!(parents, vec![feature_before.clone(), main_tip]);
+
+    let undo = ff(&fx, &["undo"]);
+    assert!(undo.status.success(), "{}", out(&undo));
+    assert_eq!(
+        tip(&fx, "feature"),
+        feature_before,
+        "undo puts feature back"
+    );
+}
+
+#[test]
+fn a_replay_policy_refuses_toward_restack_and_names_the_source() {
+    let fx = repo();
+    merge_holding_side(&fx);
+    fx.set_config("fufu.side.pull", "replay");
+    let side_before = tip(&fx, "side");
+
+    let output = ff(&fx, &["--json", "resolve"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let v = json(&output);
+    assert_eq!(v["error"]["id"], "held/none");
+    let message = v["error"]["message"].as_str().unwrap_or_default();
+    assert!(message.contains("ff restack"), "got: {message}");
+    assert!(message.contains("under replay"), "got: {message}");
+    assert!(
+        message.contains("fufu.side.pull in this repo"),
+        "got: {message}"
+    );
+    assert_eq!(tip(&fx, "side"), side_before, "side's tip stands");
+}
+
+#[test]
+fn auto_with_a_sibling_merge_takes_the_base_in() {
+    let fx = repo();
+    sibling_merged_side(&fx);
+
+    let output = ff(&fx, &["resolve"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("merged main into side"), "got: {text}");
+    assert_eq!(
+        fx.git(&["rev-list", "--count", "--merges", "main..side"])
+            .trim(),
+        "2"
+    );
+    assert!(
+        fx.try_git(&["merge-base", "--is-ancestor", "main", "side"])
+            .status
+            .success(),
+        "main is an ancestor of side"
+    );
+}
+
+#[test]
+fn up_to_date_says_so_under_every_policy() {
+    let fx = repo();
+    fx.write("base.txt", "base\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("f1.txt", "f1\n");
+    fx.commit("f1");
+    let feature_before = tip(&fx, "feature");
+
+    for policy in ["auto", "replay", "merge"] {
+        fx.set_config("fufu.pull", policy);
+        let output = ff(&fx, &["--json", "resolve"]);
+        assert_eq!(output.status.code(), Some(3), "{policy}: {}", out(&output));
+        let v = json(&output);
+        assert_eq!(v["error"]["id"], "held/none", "{policy}");
+        let message = v["error"]["message"].as_str().unwrap_or_default();
+        assert!(
+            message.contains("up to date with main"),
+            "{policy}: got: {message}"
+        );
+        assert_eq!(tip(&fx, "feature"), feature_before, "{policy}: tip stands");
+    }
 }

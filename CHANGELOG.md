@@ -10,6 +10,7 @@
 
 - `ff pull`'s base step leaves a branch standing under `auto`'s rule, widened from a merge of the base to any merge in the branch's range, and reports it behind its base with the policy that decided it and where it was set. `replay` replays such a branch and flattens a merge of the base. The JSON skip reason `merge-in-range` is now `behind`, carrying `policy` and `source`.
 - The cascade under `ff restack`, `ff pull`, `ff absorb`, `ff lift`, `ff describe`, `ff done`, and `ff fold` leaves a dependent standing under its own `fufu.pull` policy, `merge` or `auto` with a merge among its commits, and reports it behind its moved base with the policy and source; its own dependents are left alone. The branch the verb was given replays regardless. JSON: the cascade's `skipped` row carries reason `behind`.
+- [`ff resolve`](docs/reference/cli/resolve.md) with no hold takes the base in on a branch whose `fufu.pull` policy resolves to `merge`, or to `auto` with any merge among its commits, widened from a merge of the base; a branch resolving to `replay`, or to `auto` on a straight line, is refused toward `ff restack` with the policy and its source named. `held/none` still.
 
 ## v0.18.0 — 2026-09-21
 

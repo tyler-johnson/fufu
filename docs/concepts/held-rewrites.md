@@ -70,7 +70,7 @@ A hold does not itself prevent local commits or branch switches. You can keep bu
 
 A hold saves the requested rewrite's intent: its branch and target. Resolution recomputes the replay against current inputs instead of resuming an old partial plan. Work committed at the existing tip can therefore be included when you resolve later.
 
-A held restack requests a replay onto a target branch. A held merge requests a merge commit: it can come from `ff merge <branch>`, or from `ff resolve` taking in updates to a previously merged base. Absorb, lift, done, and parked-change arrivals can also record holds, carrying work still waiting to be applied.
+A held restack requests a replay onto a target branch. A held merge requests a merge commit: it can come from `ff merge <branch>`, or from `ff resolve` taking the base into a branch whose [`fufu.pull`](../reference/config.md#common-settings) policy resolves to `merge`, or to `auto` with a merge among its commits. Absorb, lift, done, and parked-change arrivals can also record holds, carrying work still waiting to be applied.
 
 If a held replay now applies cleanly, `ff resolve` releases the hold and tells you to rerun the original command. A held merge that is now clean lands directly; if its target is already included, resolve releases the hold. A target that disappeared or no longer belongs to the required history can make the hold expire instead.
 

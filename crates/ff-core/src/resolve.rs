@@ -205,8 +205,9 @@ pub fn resolve(
         .map(|dropped| (ResolveOutcome::Abandoned(dropped), ctx));
     }
 
-    // No hold: the merge door. A branch whose commits hold a merge of its
-    // base, standing behind it, takes the base in the way it already does.
+    // No hold: the merge door. A branch standing behind its base takes the
+    // base in when its `fufu.pull` policy leaves it standing, the question
+    // pull's base step and the cascade ask.
     let Some(held) = held else {
         return merge_door(repo, ctx, (prov, argv, now), &head, branch, tip);
     };
@@ -342,11 +343,35 @@ fn nothing_held(branch: &str, why: &str, exits: Vec<String>) -> Error {
     )
 }
 
-/// The merge door: with no hold on the branch, a branch whose commits hold
-/// a merge of its base and that is behind it takes the base in by one
-/// merge commit. A linear branch is `ff restack`'s and refuses; up to date
-/// says so. A conflicting auto-merge records the hold and opens the
-/// session in one operation, the hold riding the mint.
+/// The `why` of a refusal toward `ff restack`: the policy that replays the
+/// branch and the row that set it, so an explicit `replay` explains
+/// itself. `replay` never resolves from the default, so its row is always
+/// there; `auto` names one only when a row set it.
+fn replays_it(resolved: &crate::pullpolicy::Resolved, base: &str) -> String {
+    let row = resolved.source.row();
+    match (resolved.policy, row) {
+        (crate::pullpolicy::PullPolicy::Replay, Some(row)) => {
+            format!(": it sits behind {base} under replay ({row}), and ff restack replays it")
+        }
+        (crate::pullpolicy::PullPolicy::Replay, None) => {
+            format!(": it sits behind {base} under replay, and ff restack replays it")
+        }
+        (_, Some(row)) => format!(
+            ": it sits behind {base} on a straight line (auto, {row}), and ff restack replays it"
+        ),
+        (_, None) => {
+            format!(": it sits behind {base} on a straight line (auto), and ff restack replays it")
+        }
+    }
+}
+
+/// The merge door: with no hold on the branch, a branch behind its base
+/// takes the base in by one merge commit when its `fufu.pull` policy
+/// leaves it standing: `merge`, or `auto` with a merge among its commits.
+/// A branch the policy replays is `ff restack`'s and refuses naming the
+/// policy and its source; up to date says so. A conflicting auto-merge
+/// records the hold and opens the session in one operation, the hold
+/// riding the mint.
 fn merge_door(
     repo: &gix::Repository,
     ctx: verb::VerbContext,
@@ -391,13 +416,23 @@ fn merge_door(
             vec!["ff status".into(), "ff log".into()],
         ));
     }
-    if range.merges_of_base(repo)?.is_empty() {
+    // Beneath the base with nothing of its own: a move, not a merge, under
+    // every policy, as pull passes a fast-forward.
+    if range.fast_forward {
         return Err(nothing_held(
             &branch,
             &format!(
-                ": it sits behind {} on a straight line, and ff restack replays it",
+                ": it sits behind {} with nothing of its own, and ff restack moves it",
                 onto.name
             ),
+            vec!["ff restack".into(), "ff status".into()],
+        ));
+    }
+    let resolved = crate::pullpolicy::pull_policy(repo, &branch);
+    if !resolved.policy.leaves_standing(range.merge.is_some()) {
+        return Err(nothing_held(
+            &branch,
+            &replays_it(&resolved, &onto.name),
             vec!["ff restack".into(), "ff status".into()],
         ));
     }

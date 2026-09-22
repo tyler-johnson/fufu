@@ -768,31 +768,12 @@ pub(crate) fn skip_reason(
 /// default `auto: its commits hold a merge`, with the row named only when
 /// one was set.
 fn behind_policy(policy: ff_core::PullPolicy, source: &ff_core::PolicySource) -> String {
-    let row = match source {
-        ff_core::PolicySource::Default => String::new(),
-        ff_core::PolicySource::Setting { scope } => {
-            format!(", fufu.pull in {}", scope_human_label(scope))
-        }
-        ff_core::PolicySource::Pattern { pattern, scope } => {
-            format!(", fufu.{pattern}.pull in {}", scope_human_label(scope))
-        }
-    };
+    let row = source.row().map(|r| format!(", {r}")).unwrap_or_default();
     match policy {
         ff_core::PullPolicy::Auto => format!("auto: its commits hold a merge{row}"),
         ff_core::PullPolicy::Merge | ff_core::PullPolicy::Replay => {
             format!("{}{row}", policy.as_str())
         }
-    }
-}
-
-/// The words a config scope reads as in a sentence: `local` is `this repo`.
-pub(crate) fn scope_human_label(source: &str) -> &str {
-    match source {
-        "local" => "this repo",
-        "global" => "global config",
-        "system" => "system config",
-        "env" => "the environment",
-        _ => source,
     }
 }
 

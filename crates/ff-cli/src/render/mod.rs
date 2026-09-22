@@ -9,6 +9,7 @@ mod status;
 
 pub use age::relative_age;
 pub(crate) use diff::{name_only_block, patch_block, render_diffstat};
+pub(crate) use ff_core::pullpolicy::scope_human_label;
 pub use palette::{
     col, init_palette, paint_dim, paint_id, paint_ok, paint_sha, paint_warn, styled_id,
 };
@@ -19,6 +20,6 @@ pub use rows::{
 };
 pub use status::{StatusView, reconcile_notice, status_human};
 pub(crate) use status::{
-    cascade_lines, dropped_lines, flattened_lines, held_block, held_line, scope_human_label,
-    skip_reason, truncate_subject,
+    cascade_lines, dropped_lines, flattened_lines, held_block, held_line, skip_reason,
+    truncate_subject,
 };

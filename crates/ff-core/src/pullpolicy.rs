@@ -77,6 +77,24 @@ pub enum PolicySource {
     Pattern { pattern: String, scope: String },
 }
 
+impl PolicySource {
+    /// The row that set the policy, as a sentence names it: `fufu.pull in
+    /// this repo`, `fufu.tyler/*.pull in global config`. `None` for the
+    /// default, which no row set.
+    pub fn row(&self) -> Option<String> {
+        match self {
+            PolicySource::Default => None,
+            PolicySource::Setting { scope } => {
+                Some(format!("fufu.pull in {}", scope_human_label(scope)))
+            }
+            PolicySource::Pattern { pattern, scope } => Some(format!(
+                "fufu.{pattern}.pull in {}",
+                scope_human_label(scope)
+            )),
+        }
+    }
+}
+
 /// The effective policy for one branch and the row that set it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Resolved {
@@ -100,6 +118,17 @@ pub fn scope_label(kind: Kind) -> &'static str {
         Kind::Repository => "local",
         Kind::Global => "global",
         Kind::System | Kind::GitInstallation => "system",
+    }
+}
+
+/// The words a config scope reads as in a sentence: `local` is `this repo`.
+pub fn scope_human_label(source: &str) -> &str {
+    match source {
+        "local" => "this repo",
+        "global" => "global config",
+        "system" => "system config",
+        "env" => "the environment",
+        _ => source,
     }
 }
 
