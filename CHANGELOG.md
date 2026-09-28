@@ -4,20 +4,19 @@
 
 ### Added
 
-- `fufu.pull` (`auto`, the default, `replay`, or `merge`) chooses how [`ff pull`](docs/reference/cli/pull.md)'s base step takes a moved base in, and `fufu.<pattern>.pull` chooses per branch by refspec glob, the last matching row in git's read order winning. [`ff config pull`](docs/reference/cli/config.md) lists the setting and every pattern row with its scope; the rows are written with `git config`. See [configuration](docs/reference/config.md#common-settings).
+- `fufu.pull` (`auto`, the default, `replay`, or `merge`) sets how a branch takes in a moved base, and `fufu.<pattern>.pull` sets it per branch by glob. It governs [`ff pull`](docs/reference/cli/pull.md)'s base step, the cascade under rewriting verbs, and [`ff resolve`](docs/reference/cli/resolve.md) with no hold. [`ff config pull`](docs/reference/cli/config.md) lists the setting and every pattern row with its scope. See [configuration](docs/reference/config.md#common-settings).
 
 ### Changed
 
-- `ff pull`'s base step leaves a branch standing under `auto`'s rule, widened from a merge of the base to any merge in the branch's range, and reports it behind its base with the policy that decided it and where it was set. `replay` replays such a branch and flattens a merge of the base. The JSON skip reason `merge-in-range` is now `behind`, carrying `policy` and `source`.
-- The cascade under `ff restack`, `ff pull`, `ff absorb`, `ff lift`, `ff describe`, `ff done`, and `ff fold` leaves a dependent standing under its own `fufu.pull` policy, `merge` or `auto` with a merge among its commits, and reports it behind its moved base with the policy and source; its own dependents are left alone. The branch the verb was given replays regardless. JSON: the cascade's `skipped` row carries reason `behind`.
-- [`ff resolve`](docs/reference/cli/resolve.md) with no hold takes the base in on a branch whose `fufu.pull` policy resolves to `merge`, or to `auto` with any merge among its commits, widened from a merge of the base; a branch resolving to `replay`, or to `auto` on a straight line, is refused toward `ff restack` with the policy and its source named. `held/none` still.
+- A branch whose policy is `merge`, or `auto` with any merge among its commits, is left standing when its base moves, where before only a merge of the base stopped it. `ff pull` and the cascade report it behind its base with the policy and where it was set; the branch a verb was given still replays. `replay` replays it and flattens a merge of the base. JSON: skip reason `merge-in-range` is now `behind`, carrying `policy` and `source`.
+- `ff resolve` with no hold merges the base into a branch left standing, and refuses a branch that should replay toward [`ff restack`](docs/reference/cli/restack.md), naming the policy.
 
 ### Fixed
 
-- Path positionals on [`ff log`](docs/reference/cli/log.md), [`ff diff`](docs/reference/cli/diff.md), [`ff show`](docs/reference/cli/show.md), [`ff restore`](docs/reference/cli/restore.md), [`ff commit`](docs/reference/cli/commit.md), `ff absorb`, and `ff lift` resolved from the repository root rather than the current directory, so in a subdirectory they matched a root namesake or nothing, and `.` selected nothing. They now resolve from the current directory; a path outside the repository is refused with `usage/no-such-path`.
-- `ff restore` answered a path that matches nothing with an empty report and exit 0. It now refuses it with `usage/no-such-path`, exit 2, before its pre-restore capture; a path the source holds still counts.
-- A conflicting [`ff restack`](docs/reference/cli/restack.md) of a branch other than the current one, directly or through `ff pull`, recorded the current branch's working tree as that branch's parked change, replacing any it had, so [`ff switch`](docs/reference/cli/switch.md) to it resumed the other branch's files as uncommitted work. The hold now leaves that branch's parked change alone.
-- [`ff done`](docs/reference/cli/done.md) on a restack or merge resolution whose branch's parked change conflicts with the landed tip reported the parked change as held, then cleared the hold, so the parked change was left only in the op log and `ff resolve` found nothing held. The hold now stands, and `ff resolve` lays the parked change into the working copy with markers.
+- Path positionals on [`ff log`](docs/reference/cli/log.md), [`ff diff`](docs/reference/cli/diff.md), [`ff show`](docs/reference/cli/show.md), [`ff restore`](docs/reference/cli/restore.md), [`ff commit`](docs/reference/cli/commit.md), `ff absorb`, and `ff lift` resolved from the repository root, so in a subdirectory they matched a root namesake or nothing. They now resolve from the current directory, and a path outside the repository is refused with `usage/no-such-path`.
+- `ff restore` of a path that matches nothing exited 0 with an empty report. It now refuses with `usage/no-such-path`.
+- A conflicting `ff restack` of a branch other than the current one, directly or through `ff pull`, replaced that branch's parked change with the current working tree, so [`ff switch`](docs/reference/cli/switch.md) to it resumed the wrong files.
+- [`ff done`](docs/reference/cli/done.md) on a resolution whose parked change conflicted with the landed tip cleared the hold, leaving the parked change only in the op log. The hold now stands, and `ff resolve` lays the parked change into the working copy with markers.
 
 ## v0.18.0 — 2026-09-21
 
