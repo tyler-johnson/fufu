@@ -12,6 +12,11 @@
 - The cascade under `ff restack`, `ff pull`, `ff absorb`, `ff lift`, `ff describe`, `ff done`, and `ff fold` leaves a dependent standing under its own `fufu.pull` policy, `merge` or `auto` with a merge among its commits, and reports it behind its moved base with the policy and source; its own dependents are left alone. The branch the verb was given replays regardless. JSON: the cascade's `skipped` row carries reason `behind`.
 - [`ff resolve`](docs/reference/cli/resolve.md) with no hold takes the base in on a branch whose `fufu.pull` policy resolves to `merge`, or to `auto` with any merge among its commits, widened from a merge of the base; a branch resolving to `replay`, or to `auto` on a straight line, is refused toward `ff restack` with the policy and its source named. `held/none` still.
 
+### Fixed
+
+- Path positionals on [`ff log`](docs/reference/cli/log.md), [`ff diff`](docs/reference/cli/diff.md), [`ff show`](docs/reference/cli/show.md), [`ff restore`](docs/reference/cli/restore.md), [`ff commit`](docs/reference/cli/commit.md), `ff absorb`, and `ff lift` resolved from the repository root rather than the current directory, so in a subdirectory they matched a root namesake or nothing, and `.` selected nothing. They now resolve from the current directory; a path outside the repository is refused with `usage/no-such-path`.
+- `ff restore` answered a path that matches nothing with an empty report and exit 0. It now refuses it with `usage/no-such-path`, exit 2, before its pre-restore capture; a path the source holds still counts.
+
 ## v0.18.0 — 2026-09-21
 
 ### Added

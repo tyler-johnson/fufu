@@ -22,7 +22,7 @@ ff restore src/ --from main~2   # Recover files from a commit
 
 Choose one source flag. `--from` must resolve to exactly one commit and refuses the open change `@`. In operation space, `@` is the live tip, `@^` its predecessor, and `@~3` three predecessors back; sets and functions are not accepted here. The source resolves before the mandatory pre-restore snapshot. See [paths and sources](../revisions.md#paths-sources-and-past-state-reads).
 
-Paths are files or directory prefixes, without globs. Recovery can only use retained captured content: ignored untracked files, unsaved buffers, and oversized content are not recoverable from snapshots that excluded them.
+Paths are files or directory prefixes, without globs, and resolve from the current directory, so `ff restore .` in a subdirectory restores that subdirectory and at the root restores everything. A path that matches nothing on disk, in HEAD, or in the source is refused with `usage/no-such-path` before anything is captured or written. Recovery can only use retained captured content: ignored untracked files, unsaved buffers, and oversized content are not recoverable from snapshots that excluded them.
 
 ### Effects and recovery
 

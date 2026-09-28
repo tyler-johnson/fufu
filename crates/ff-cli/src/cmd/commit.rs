@@ -16,6 +16,8 @@ pub fn run(
     paths: Vec<String>,
 ) -> Result<()> {
     let repo = ff_core::discover(".")?;
+    // Core's own no-such-path check then sees what it matches against.
+    let paths = crate::cmd::paths::from_cwd(&repo, paths)?;
     // The close's own mandatory pre-capture bypasses `capture::pre_best_effort`
     // (it's core's to take, not a generic capture-first read). The session
     // is now attached when `pre_ff()` builds the provenance, so every path

@@ -40,11 +40,11 @@ pub fn run(
     // The positional is paths only: `main..HEAD` here is a revision that
     // wanted `-r`, and answering it with an empty patch reads as "no
     // changes". Refused before the tree walk.
-    crate::cmd::paths::require(
+    let paths = crate::cmd::paths::resolve(
         &repo,
         "diff",
         "takes paths in its positional, and revisions behind -r, --from, and --to",
-        &paths,
+        paths,
         |_| {
             vec![
                 "ff diff -r <revset>".into(),

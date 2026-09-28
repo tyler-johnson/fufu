@@ -20,6 +20,7 @@ pub fn run(
     no_verify: bool,
 ) -> Result<()> {
     let repo = ff_core::discover(".")?;
+    let paths = crate::cmd::paths::from_cwd(&repo, paths)?;
 
     let endpoint = |rev: Rev| match rev {
         Rev::Open(_) => Endpoint::Open,

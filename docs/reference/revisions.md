@@ -211,7 +211,7 @@ ff log -r '::main' src/       # that history filtered to paths under src/
 ff show main src/             # one revision's patch filtered to src/
 ```
 
-Paths are literal file names or directory prefixes, not globs. `ff log` follows a single file's renames by default; with `-r` it filters the set without following renames. `ff show` takes its revision first and paths afterward. For restore, paths are positional and the source uses a flag:
+Paths are literal file names or directory prefixes, not globs. They resolve from the current directory, as in Git: `..` may climb to the repository root but not past it, and `.` at the root means the whole tree. `ff log` follows a single file's renames by default; with `-r` it filters the set without following renames. `ff show` takes its revision first and paths afterward. For restore, paths are positional and the source uses a flag:
 
 | Restore source | Accepted kind and default |
 | --- | --- |

@@ -10,6 +10,11 @@ pub fn run(ctx: &Ctx, from: Option<String>, all: bool, paths: Vec<String>) -> Re
     let source = source_of(ctx, from)?;
     let repo = ff_core::discover(".")?;
     crate::render::init_palette(&repo);
+    // A path that resolves to the root selects the whole tree, so `ff
+    // restore .` at the root is `--all`.
+    let typed = !paths.is_empty();
+    let paths = crate::cmd::paths::from_cwd(&repo, paths)?;
+    let all = all || (typed && paths.is_empty());
     let report = ff_core::restore(
         &repo,
         &RestoreOptions {

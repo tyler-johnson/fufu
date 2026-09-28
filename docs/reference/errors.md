@@ -145,7 +145,7 @@ The table lists all 133 catalog entries with their structured-error exit codes.
 | `usage/needs-message` | 2 | a required commit description is missing or empty |
 | `usage/no-such-directory` | 2 | fufu could not enter the directory given to -C |
 | `usage/no-such-field` | 2 | a --fields path names a key the JSON payload does not carry |
-| `usage/no-such-path` | 2 | the path is absent from the working copy and HEAD |
+| `usage/no-such-path` | 2 | the path is absent from the working copy and HEAD, or outside the repository |
 | `usage/op-in-rev-position` | 2 | an operation ID was used where a revision is required |
 | `usage/restack-onto-self` | 2 | a branch cannot be restacked onto itself |
 | `usage/rev-in-op-position` | 2 | a revision or non-operation parent was used in operation space |

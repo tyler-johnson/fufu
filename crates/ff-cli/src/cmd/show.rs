@@ -40,11 +40,11 @@ pub fn run(ctx: &Ctx, rev: Option<String>, flags: Flags, paths: Vec<String>) -> 
     // left in the path slot must name a path. A second revision there, as
     // in `ff show HEAD <sha>`, would otherwise read as a filter that
     // matches nothing and answer "it changed no files".
-    crate::cmd::paths::require(
+    let paths = crate::cmd::paths::resolve(
         &repo,
         "show",
         "takes one revision first, then paths",
-        &paths,
+        paths,
         |_| vec!["ff show <rev>".into(), "ff log -r <revset>".into()],
     )?;
     let view = FileView::resolve(flags, Depth::Patch)?;

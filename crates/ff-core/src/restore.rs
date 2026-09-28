@@ -127,6 +127,24 @@ pub fn restore(
     //    user saw it, before the pre-restore capture moves anything.
     let (origin, source_tree) = resolve(repo, &opts.source, now)?;
 
+    // A selector that matches nothing is refused before the capture, so the
+    // refusal writes nothing. The source counts as well as disk and HEAD:
+    // `gone.txt --from <old>` for a file deleted since is the point.
+    if !opts.all {
+        for sel in &opts.paths {
+            if !path_exists(repo, sel)? && !in_tree(repo, source_tree, sel)? {
+                return Err(Error::coded(
+                    "usage/no-such-path",
+                    format!(
+                        "no path here matches {sel:?}: `ff restore` takes paths in its \
+                         positional, and its source behind --from, --at-op, or --at"
+                    ),
+                    vec!["ff status".into(), "ff restore <path> --from <rev>".into()],
+                ));
+            }
+        }
+    }
+
     // 2. Mandatory pre-restore capture: the state being overwritten must be on
     //    the log before a single byte moves.
     let pre = ops::capture_with(
@@ -199,8 +217,17 @@ pub fn path_exists(repo: &gix::Repository, selector: &str) -> Result<bool> {
     }
     // An unborn HEAD gives the empty tree, which looks nothing up.
     let id = repo.head_tree_id_or_empty().map_err(Error::repo)?;
+    in_tree(repo, id.detach(), sel)
+}
+
+/// Whether `selector` names an entry in `tree`.
+fn in_tree(repo: &gix::Repository, tree: gix::ObjectId, selector: &str) -> Result<bool> {
+    let sel = selector.trim_end_matches('/');
+    if sel.is_empty() {
+        return Ok(true);
+    }
     Ok(repo
-        .find_tree(id)
+        .find_tree(tree)
         .map_err(Error::repo)?
         .lookup_entry_by_path(sel)
         .map_err(Error::repo)?

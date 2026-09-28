@@ -88,11 +88,11 @@ pub fn run_inner(
     // log — before either view walks. A sentence in the path slot is almost
     // always a missing flag, so the exits then lead with the two
     // flag-shaped ones.
-    crate::cmd::paths::require(
+    let paths = crate::cmd::paths::resolve(
         &repo,
         "log",
         "takes paths in its positional, and revisions behind -r",
-        &paths,
+        paths,
         |token| {
             if token.chars().any(char::is_whitespace) {
                 vec![
