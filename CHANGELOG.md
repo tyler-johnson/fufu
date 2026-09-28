@@ -16,6 +16,7 @@
 
 - Path positionals on [`ff log`](docs/reference/cli/log.md), [`ff diff`](docs/reference/cli/diff.md), [`ff show`](docs/reference/cli/show.md), [`ff restore`](docs/reference/cli/restore.md), [`ff commit`](docs/reference/cli/commit.md), `ff absorb`, and `ff lift` resolved from the repository root rather than the current directory, so in a subdirectory they matched a root namesake or nothing, and `.` selected nothing. They now resolve from the current directory; a path outside the repository is refused with `usage/no-such-path`.
 - `ff restore` answered a path that matches nothing with an empty report and exit 0. It now refuses it with `usage/no-such-path`, exit 2, before its pre-restore capture; a path the source holds still counts.
+- A conflicting [`ff restack`](docs/reference/cli/restack.md) of a branch other than the current one, directly or through `ff pull`, recorded the current branch's working tree as that branch's parked change, replacing any it had, so [`ff switch`](docs/reference/cli/switch.md) to it resumed the other branch's files as uncommitted work. The hold now leaves that branch's parked change alone.
 
 ## v0.18.0 — 2026-09-21
 

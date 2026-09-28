@@ -556,6 +556,7 @@ fn restack_resolve_on_another_branch_holds_and_opens_nothing() {
     fx.git(&["branch", "-q", "-m", "feature", "other"]);
     fx.git(&["switch", "-q", "main"]);
     let ops_before = verb_ops(&fx);
+    let snap_before = ref_at(&fx, "refs/fufu/snap/other");
 
     let (outcome, opened) = restack_on(&fx, Some("other"), OnConflict::Resolve, NOW);
     assert!(matches!(outcome, RestackOutcome::Held(_)), "{outcome:?}");
@@ -567,6 +568,58 @@ fn restack_resolve_on_another_branch_holds_and_opens_nothing() {
     assert!(held::resolving(&repo, "other").unwrap().is_none());
     assert_eq!(verb_ops(&fx), ops_before + 1);
     assert_eq!(tip_record(&repo).verb, "hold");
+    assert_eq!(
+        ref_at(&fx, "refs/fufu/open/other"),
+        None,
+        "main's worktree is not parked on the held branch"
+    );
+    assert_eq!(
+        ref_at(&fx, "refs/fufu/snap/other"),
+        snap_before,
+        "the hold's op lands on main's chain, not the held branch's"
+    );
+}
+
+/// A hold on a branch HEAD does not stand on leaves that branch's parked
+/// change where it was.
+#[test]
+fn restack_holding_another_branch_keeps_its_parked_change() {
+    let fx = Fixture::new();
+    ident(&fx);
+    conflict_stack(&fx);
+    fx.git(&["branch", "-q", "-m", "feature", "other"]);
+    fx.write("parked.txt", "parked\n");
+    let repo = fx.repo();
+    ff_core::switch(
+        &repo,
+        &ff_core::SwitchOptions {
+            target: Some("main".into()),
+            now: Some(NOW - 10),
+            argv: vec!["ff".into(), "switch".into(), "main".into()],
+            ..Default::default()
+        },
+        &prov(),
+    )
+    .unwrap();
+    assert_eq!(head_branch(&fx), "main");
+    let parked = ref_at(&fx, "refs/fufu/open/other").expect("the switch parks other's change");
+
+    let (outcome, _opened) = restack_on(&fx, Some("other"), OnConflict::Hold, NOW);
+    assert!(matches!(outcome, RestackOutcome::Held(_)), "{outcome:?}");
+    assert!(held::of(&fx.repo(), "other").unwrap().is_some());
+    assert_eq!(
+        ref_at(&fx, "refs/fufu/open/other"),
+        Some(parked),
+        "the hold leaves other's parked change alone"
+    );
+}
+
+/// Where `name` points, if it exists.
+fn ref_at(fx: &Fixture, name: &str) -> Option<String> {
+    let out = fx.try_git(&["rev-parse", "--verify", "-q", name]);
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
 #[test]

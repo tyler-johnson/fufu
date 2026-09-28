@@ -304,6 +304,89 @@ fn head_branch(fx: &Fixture) -> String {
         .to_string()
 }
 
+/// Issue #14's stack, standing on `K`: `A` off main, `K` on `A`, and main
+/// moved with an edit to the line `A` changed, so restacking `A` conflicts.
+fn held_elsewhere_stack(fx: &Fixture) {
+    fx.write("a.txt", "line base\n");
+    fx.commit("m1");
+    fx.git(&["switch", "-q", "-c", "A"]);
+    fx.write("a.txt", "line from A\n");
+    fx.commit("a1");
+    fx.git(&["switch", "-q", "-c", "K"]);
+    fx.write("k.txt", "k\n");
+    fx.commit("k1");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("a.txt", "line from main\n");
+    fx.commit("m2");
+    fx.git(&["switch", "-q", "K"]);
+}
+
+/// Where `name` points, if it exists.
+fn ref_at(fx: &Fixture, name: &str) -> Option<String> {
+    let out = fx.try_git(&["rev-parse", "--verify", "-q", name]);
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Issue #14: a hold on a branch HEAD does not stand on parks nothing on it,
+/// so switching to it finds its own tip and a clean worktree.
+#[test]
+fn a_hold_on_another_branch_parks_nothing_on_it() {
+    let fx = repo();
+    held_elsewhere_stack(&fx);
+
+    let held = ff(&fx, &["restack", "A", "--onto", "main", "--no-fetch"]);
+    assert_eq!(held.status.code(), Some(3), "{}", out(&held));
+    assert_eq!(
+        ref_at(&fx, "refs/fufu/open/A"),
+        None,
+        "K's worktree is not parked on A"
+    );
+
+    let switched = ff(&fx, &["switch", "A"]);
+    assert!(switched.status.success(), "{}", out(&switched));
+    assert!(
+        !out(&switched).contains("resumed the parked change"),
+        "{}",
+        out(&switched)
+    );
+    assert_eq!(head_branch(&fx), "A");
+    assert!(!fx.path().join("k.txt").exists(), "K's file stays on K");
+    assert_eq!(fx.git(&["status", "--porcelain"]), "");
+}
+
+/// One undo straight after a hold on another branch drops the hold and
+/// leaves the branch underfoot as it was.
+#[test]
+fn undo_after_a_hold_on_another_branch_leaves_the_current_one() {
+    let fx = repo();
+    held_elsewhere_stack(&fx);
+    fx.write("k.txt", "k edited\n");
+    let captured = ff(&fx, &["status"]);
+    assert!(captured.status.success(), "{}", out(&captured));
+    let open_k = ref_at(&fx, "refs/fufu/open/K");
+    assert!(open_k.is_some(), "the capture records K's open change");
+
+    let held = ff(&fx, &["restack", "A", "--onto", "main", "--no-fetch"]);
+    assert_eq!(held.status.code(), Some(3), "{}", out(&held));
+
+    let undone = ff(&fx, &["undo"]);
+    assert!(undone.status.success(), "{}", out(&undone));
+    assert!(
+        ff_core::held::of(&fx.repo(), "A").unwrap().is_none(),
+        "the undo drops the hold"
+    );
+    assert_eq!(head_branch(&fx), "K");
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("k.txt")).unwrap(),
+        "k edited\n"
+    );
+    assert_eq!(fx.git(&["status", "--porcelain"]), " M k.txt\n");
+    assert_eq!(ref_at(&fx, "refs/fufu/open/K"), open_k);
+    assert_eq!(ref_at(&fx, "refs/fufu/open/A"), None);
+}
+
 /// `--resolve` on a conflicting replay: the hold is recorded and named, the
 /// session opens with the markers in the working copy, the exit is still 3,
 /// and `ff done` lands the restack from the session.

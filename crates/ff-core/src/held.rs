@@ -596,6 +596,9 @@ pub(crate) struct Recording<'a> {
 /// the present on every axis but the branch's metadata — which is the same
 /// slim shape `ff describe` writes for a pending description. The operation
 /// is what makes a hold undoable and what `ff op trim` eventually ages out.
+/// The operation lands on HEAD's chain, which is where the worktree it
+/// records belongs; the hold itself lands on `branch`'s metadata, which need
+/// not be HEAD's when a restack holds another branch.
 pub(crate) fn record(
     repo: &gix::Repository,
     rec: Recording<'_>,
@@ -628,7 +631,7 @@ pub(crate) fn record(
             planned: table,
             tree: ctx.pre_tree,
             index_tree: crate::index::tree_from_index(repo)?,
-            branch: branch.to_string(),
+            branch: crate::snapshot::chain::chain_name(&head),
             base: crate::snapshot::chain::base_commit(&head)?,
             session: prov.session.clone(),
             pins: &[],
