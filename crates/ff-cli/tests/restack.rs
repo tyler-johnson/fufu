@@ -387,6 +387,100 @@ fn undo_after_a_hold_on_another_branch_leaves_the_current_one() {
     assert_eq!(ref_at(&fx, "refs/fufu/open/A"), None);
 }
 
+/// Issue #14's "Also seen": `A` has a parked edit to the line after the one
+/// `A` and main both changed, `A` is held from main, and the resolution is
+/// opened from `A` and landed. The parked edit conflicts with the landed
+/// tip, so `ff done` holds it on `A` and exits 3.
+fn held_arrival_stack(fx: &Fixture) {
+    fx.write("a.txt", "line base\nrest\n");
+    fx.commit("m1");
+    fx.git(&["switch", "-q", "-c", "A"]);
+    fx.write("a.txt", "line from A\nrest\n");
+    fx.commit("a1");
+    fx.write("a.txt", "line from A\nrest parked\n");
+    let parked = ff(fx, &["switch", "main"]);
+    assert!(parked.status.success(), "{}", out(&parked));
+    fx.write("a.txt", "line from main\nrest\n");
+    fx.commit("m2");
+
+    let held = ff(fx, &["restack", "A", "--onto", "main", "--no-fetch"]);
+    assert_eq!(held.status.code(), Some(3), "{}", out(&held));
+    let switched = ff(fx, &["switch", "A"]);
+    assert!(switched.status.success(), "{}", out(&switched));
+    assert!(
+        out(&switched).contains("resumed the parked change"),
+        "{}",
+        out(&switched)
+    );
+    let opened = ff(fx, &["resolve"]);
+    assert!(opened.status.success(), "{}", out(&opened));
+    fx.write("a.txt", "line from main and A\nrest\n");
+    let done = ff(fx, &["done"]);
+    assert_eq!(done.status.code(), Some(3), "{}", out(&done));
+    assert!(
+        out(&done).contains("the parked change does not apply on A's new tip"),
+        "{}",
+        out(&done)
+    );
+}
+
+/// The arrival hold `ff done` reports stands on `A`, and `ff resolve` lays
+/// the parked change into the working copy with markers.
+#[test]
+fn a_held_arrival_after_a_resolved_restack_stands() {
+    let fx = repo();
+    held_arrival_stack(&fx);
+
+    assert_eq!(head_branch(&fx), "A");
+    let held = ff_core::held::of(&fx.repo(), "A").unwrap();
+    assert!(
+        matches!(
+            held,
+            Some(ff_core::held::Held {
+                intent: ff_core::held::Intent::Arrive { .. },
+                ..
+            })
+        ),
+        "{held:?}"
+    );
+    assert!(
+        ff_core::held::resolving(&fx.repo(), "A").unwrap().is_none(),
+        "the restack's resolution is spent"
+    );
+
+    let resolved = ff(&fx, &["resolve"]);
+    assert!(resolved.status.success(), "{}", out(&resolved));
+    let text = std::fs::read_to_string(fx.path().join("a.txt")).unwrap();
+    assert!(text.contains("rest parked"), "{text}");
+    assert!(text.contains("<<<<<<<"), "{text}");
+}
+
+/// One undo after the landing puts the restack's hold and its resolution
+/// back on `A`.
+#[test]
+fn one_undo_after_a_held_arrival_puts_the_restack_hold_back() {
+    let fx = repo();
+    held_arrival_stack(&fx);
+
+    let undone = ff(&fx, &["undo"]);
+    assert!(undone.status.success(), "{}", out(&undone));
+    let held = ff_core::held::of(&fx.repo(), "A").unwrap();
+    assert!(
+        matches!(
+            held,
+            Some(ff_core::held::Held {
+                intent: ff_core::held::Intent::Restack { .. },
+                ..
+            })
+        ),
+        "{held:?}"
+    );
+    assert!(
+        ff_core::held::resolving(&fx.repo(), "A").unwrap().is_some(),
+        "the undo reopens the resolution"
+    );
+}
+
 /// `--resolve` on a conflicting replay: the hold is recorded and named, the
 /// session opens with the markers in the working copy, the exit is still 3,
 /// and `ff done` lands the restack from the session.

@@ -883,10 +883,10 @@ impl Return {
     }
 
     /// The mutating half, after the refs moved: index and working copy to
-    /// the landed tip, the arrival, the spent park, the session's open ref,
-    /// and the three metadata records — the session branch's session, and
-    /// the hold and the resolution on the branch it stood on. Returns the
-    /// arrival and how many files the worktree write touched.
+    /// the landed tip, the hold and the resolution cleared on the branch it
+    /// stood on, the arrival, the spent park, the session's open ref, and
+    /// the session branch's session. Returns the arrival and how many files
+    /// the worktree write touched.
     pub(crate) fn land(
         &self,
         repo: &gix::Repository,
@@ -899,6 +899,9 @@ impl Return {
         let transition =
             crate::worktree::apply_tree_transition(repo, self.worktree, new_tip_tree, &everything)?;
         let files = transition.written.len() + transition.deleted.len();
+        // Cleared before the arrival, so a held arrival on the same branch stands.
+        set(repo, &self.hold_on, None)?;
+        set_resolving(repo, &self.hold_on, None)?;
         let arrival = match &self.arrive_on {
             Some(branch) => crate::park::execute_arrival(repo, branch, arrive, new_tip_tree, now)?,
             None => crate::model::ArrivalReport::None,
@@ -918,8 +921,6 @@ impl Return {
         let mut meta = branchmeta::read(repo, &self.session)?;
         meta.session = None;
         branchmeta::write(repo, &self.session, &meta)?;
-        set(repo, &self.hold_on, None)?;
-        set_resolving(repo, &self.hold_on, None)?;
         let _ = crate::futures::cache::remove(repo, &self.session);
         Ok((arrival, files))
     }
