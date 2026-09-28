@@ -19,6 +19,31 @@ Every installation but Qwen Code's includes the shipped skill. The linked client
 
 `ff hook --all` installs integrations for detected clients and shells without asking. Follow each reported activation step. It does not add instructions to your project's `CLAUDE.md` or `AGENTS.md`. Shell hooks need their own activation; see the [shell references](../reference/hooks/index.md).
 
+### Claude Code auto mode
+
+In auto mode, Claude Code sends each tool call that no permission rule matches to a classifier. The classifier doesn't know fufu can take its writes back, so it can refuse ordinary ones as destructive, and the agent then stops and hands the command to you:
+
+```
+ff restore --all
+→ Permission for this action was denied by the Claude Code auto mode classifier.
+```
+
+A matching allow rule settles the call without the classifier. Add these to `~/.claude/settings.json`, or through `/permissions`:
+
+```json
+{
+  "permissions": {
+    "allow": ["Bash(ff *)", "Bash(cd *)"]
+  }
+}
+```
+
+Claude Code matches each part of a compound command separately, and agents usually run `cd <dir> && ff …`, so the `cd` rule is needed too. `Bash(ff *)` also approves the Git passthrough, which runs Git verbatim after a snapshot. To keep a prompt before anything leaves the machine, add ask rules; they take precedence over allow rules:
+
+```json
+"ask": ["Bash(ff push *)", "Bash(ff git push *)"]
+```
+
 ## Verify
 
 First check configuration with `ff hook -l` and [`ff doctor`](../reference/cli/doctor.md) in a repository. Doctor exits 0 when healthy and 1 on findings; read the named checks. Re-run `ff hook <client>` to repair partial or stale wiring, then repeat activation. `ff doctor --fix` also repairs supported hook and skill findings.

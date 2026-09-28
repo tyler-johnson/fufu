@@ -153,6 +153,8 @@ Settings entries written by hand that run something other than `ff trigger claud
 <a id="notes"></a>
 ## Troubleshooting and migration
 
+If auto mode refuses an `ff` command with "denied by the Claude Code auto mode classifier", add the allow rules in [Claude Code auto mode](../../agents/setup.md#claude-code-auto-mode). Plugins can't carry permission rules, so the installer doesn't add them.
+
 After moving the binary, run `ff hook claude` or `ff hook -u` to refresh the plugin's absolute command path, then restart Claude Code. Its old command can still be recognized as installed even when the binary has moved.
 
 A missing primary event is partial; missing wider events or retired spellings are stale. `ff doctor --fix` repairs these installed-file findings. The [manual two-event settings example](../../agents/setup.md#manual-hook-configuration) captures and briefs but omits the skill and wider events.
