@@ -76,11 +76,13 @@ fn each(repo: &ff_core::gix::Repository, tokens: &[String]) -> Result<Option<Vec
     if tokens.is_empty() {
         return Ok(Some(Vec::new()));
     }
-    // `getcwd` is already physical, so the root is resolved to match: on
-    // macOS `/tmp` is `/private/tmp`, and a lexical strip would miss. `real`
+    // Both sides are resolved so the strip compares one spelling: on macOS
+    // `/tmp` is `/private/tmp`, and on Windows the current directory keeps
+    // the spelling it was entered by, an 8.3 short name like `RUNNER~1`
+    // included, where the root's canonical form has the long one. `real`
     // also drops the `\\?\` prefix Windows's canonical form carries.
     let root = ff_core::linked::path::real(workdir);
-    let cwd = std::env::current_dir().map_err(Error::repo)?;
+    let cwd = ff_core::linked::path::real(&std::env::current_dir().map_err(Error::repo)?);
     tokens
         .iter()
         .map(|token| {
