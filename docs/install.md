@@ -51,7 +51,7 @@ Check that [`ff version`](reference/cli/version.md) runs. A released binary prin
 
 ```console
 $ ff version
-fufu 0.19.0 (98208e0 2026-09-28)
+fufu 0.19.1 (3a545a9 2026-09-30)
 https://github.com/tyler-johnson/fufu
 ```
 
@@ -101,7 +101,7 @@ To install manually, download the versioned archive and `checksums.txt` from the
 
 ```console
 $ sha256sum -c --ignore-missing checksums.txt
-ff_0.19.0_linux_amd64.tar.gz: OK
+ff_0.19.1_linux_amd64.tar.gz: OK
 ```
 
 `checksums.txt` is unsigned. Verification establishes that the download matches the published checksum, not who published it. Pin a version and fetch over TLS from the releases page.
