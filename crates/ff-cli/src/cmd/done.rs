@@ -201,6 +201,30 @@ pub fn run(ctx: &Ctx, abandon: bool, no_verify: bool) -> Result<()> {
                 report.branch,
                 crate::render::paint_sha(ff_core::sha::short(report.new_tip.as_str()), colored)
             );
+            if let Some(outside) = &report.outside {
+                let commit = ff_core::sha::short(outside.commit.as_str());
+                println!(
+                    "edits outside the markers landed in {} \"{}\": {}",
+                    crate::render::paint_sha(commit, colored),
+                    outside.subject,
+                    outside.paths.join(", ")
+                );
+                for m in &outside.moves {
+                    println!(
+                        "{}",
+                        crate::render::paint_dim(
+                            &format!(
+                                "    move {}: ff absorb --from {} --into {} {}",
+                                m.path,
+                                commit,
+                                ff_core::sha::short(m.into.as_str()),
+                                m.path
+                            ),
+                            colored
+                        )
+                    );
+                }
+            }
             println!("back on {}", report.branch);
             crate::cmd::switch::render_arrival(&report.arrival, &report.branch, colored);
             // The subtree the hold stopped, resumed from the landed tip. A

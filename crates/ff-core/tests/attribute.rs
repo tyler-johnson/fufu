@@ -110,6 +110,7 @@ fn a_fix_inside_a_region_belongs_to_its_step() {
     );
     assert_eq!(res.with, "RESOLVED\n", "the replacement text");
     assert!(at.unresolved.is_empty(), "nothing left alone");
+    assert!(at.outside.is_empty(), "nothing edited outside the region");
 }
 
 #[test]
@@ -178,6 +179,10 @@ fn an_edit_beyond_the_markers_is_still_that_regions_edit() {
         "the resolution covers the block and the edit that spilled past it"
     );
     assert!(at.unresolved.is_empty());
+    assert!(
+        at.outside.is_empty(),
+        "an edit spilling past a marker line is the region's, not outside it"
+    );
 }
 
 #[test]
@@ -202,6 +207,32 @@ fn an_edit_far_from_every_region_is_not_attributed() {
         "covering only the region"
     );
     assert!(at.unresolved.is_empty());
+    assert_eq!(
+        at.outside,
+        ["f.txt"],
+        "the far edit is outside every region"
+    );
+}
+
+#[test]
+fn a_new_file_is_outside_every_region() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_base, main, f1, f2) = stack(&fx);
+    let repo = fx.repo();
+
+    let chain = run_chain(&repo, &f1, &f2, &main);
+
+    fx.write("g.txt", "new\n");
+    let resolved = resolved_tree(&fx, &repo, "one\ntwo\nRESOLVED\nfour\nFEAT5\n");
+    let at: Attribution = attribute(&repo, &chain, resolved).expect("attribute runs");
+
+    assert_eq!(at.resolutions.len(), 1, "the region is still attributed");
+    assert_eq!(
+        at.outside,
+        ["g.txt"],
+        "the new file is listed, the fixed one not"
+    );
 }
 
 #[test]
@@ -306,6 +337,7 @@ fn a_deleted_file_attributes_nothing() {
         at.unresolved.is_empty(),
         "a deleted file attributes no unresolved region"
     );
+    assert_eq!(at.outside, ["f.txt"], "the deletion lands in the last step");
 }
 
 #[test]

@@ -443,3 +443,76 @@ fn done_rolled_json_envelope() {
     assert_eq!(v["data"]["rolled"]["tangled"], serde_json::Value::Null);
     assert_eq!(v["data"]["undo"], "ff undo");
 }
+
+/// The issue #15 stack: `A` adds `label(text)`, `B` extracts `read()` from
+/// it, `C` is unrelated. An edit of `A` renaming the parameter holds on `B`,
+/// whose region covers only the `click` line. `ff resolve` opens it and the
+/// reader writes the fix, signature line included.
+fn outside_session(fx: &Fixture) {
+    fx.write("f.txt", "top\nbottom\n");
+    fx.commit("base");
+    fx.write(
+        "f.txt",
+        "top\nfunction label(text) {\n    click(text);\n    wait();\n    one();\n    two();\n    three();\n}\nuse(label(\"a\"));\nbottom\n",
+    );
+    let a = fx.commit("A: add label");
+    fx.write(
+        "f.txt",
+        "top\nfunction read() {\n    wait();\n    one();\n    two();\n    three();\n}\nfunction label(text) {\n    click(text);\n    return read();\n}\nuse(label(\"a\"));\nbottom\n",
+    );
+    fx.commit("B: extract read, re-add label");
+    fx.write("g.txt", "later\n");
+    fx.commit("C: unrelated later commit");
+
+    assert!(ff(fx, &["edit", &a]).status.success());
+    fx.write(
+        "f.txt",
+        "top\nfunction label(finding) {\n    click(finding.text, finding.id);\n    wait();\n    one();\n    two();\n    three();\n}\nuse(label(\"a\"));\nbottom\n",
+    );
+    let held = ff(fx, &["done"]);
+    assert_eq!(held.status.code(), Some(3), "{}", out(&held));
+    assert!(ff(fx, &["resolve"]).status.success());
+    fx.write(
+        "f.txt",
+        "top\nfunction read() {\n    wait();\n    one();\n    two();\n    three();\n}\nfunction label(finding) {\n    click(finding.text, finding.id);\n    return read();\n}\nuse(label(\"a\"));\nbottom\n",
+    );
+}
+
+#[test]
+fn done_names_the_commit_that_took_edits_outside_the_markers() {
+    let fx = repo();
+    outside_session(&fx);
+    let output = ff(&fx, &["done"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    let c = fx.git(&["rev-parse", "--short=8", "HEAD"]);
+    let b = fx.git(&["rev-parse", "--short=8", "HEAD~1"]);
+    let (b, c) = (b.trim(), c.trim());
+    assert!(
+        text.contains(&format!(
+            "edits outside the markers landed in {c} \"C: unrelated later commit\": f.txt\n"
+        )),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            "    move f.txt: ff absorb --from {c} --into {b} f.txt\n"
+        )),
+        "{text}"
+    );
+
+    let fx = repo();
+    outside_session(&fx);
+    let output = ff(&fx, &["--json", "done"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let v = json(&output);
+    let outside = &v["data"]["done"]["outside"];
+    assert_eq!(outside["commit"], fx.git(&["rev-parse", "HEAD"]).trim());
+    assert_eq!(outside["subject"], "C: unrelated later commit");
+    assert_eq!(outside["paths"], serde_json::json!(["f.txt"]));
+    assert_eq!(outside["moves"][0]["path"], "f.txt");
+    assert_eq!(
+        outside["moves"][0]["into"],
+        fx.git(&["rev-parse", "HEAD~1"]).trim()
+    );
+}

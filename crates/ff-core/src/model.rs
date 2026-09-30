@@ -983,6 +983,32 @@ pub struct ResolvedReport {
     /// tip. A hold inside it is that branch's own and leaves `still_held`
     /// alone.
     pub cascade: Cascade,
+    /// Set when the reader edited outside every conflict region and those
+    /// edits landed in a commit other than the ones the regions belong to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outside: Option<OutsideEdits>,
+}
+
+/// Edits a resolution made outside every conflict region. They land in the
+/// last replayed commit, whose tree the working copy was.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OutsideEdits {
+    /// The commit that received them, as landed, full sha.
+    pub commit: String,
+    pub subject: String,
+    /// The files they touched, sorted.
+    pub paths: Vec<String>,
+    /// For each file whose edits plainly belong to one earlier commit, where
+    /// `ff absorb` can move them.
+    pub moves: Vec<OutsideMove>,
+}
+
+/// One file's edits and the commit they belong in.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OutsideMove {
+    pub path: String,
+    /// The commit to move them into, as landed, full sha.
+    pub into: String,
 }
 
 /// A session that landed.

@@ -674,25 +674,8 @@ fn marked_paths(
     before: gix::ObjectId,
     after: gix::ObjectId,
 ) -> Result<Vec<String>> {
-    if before == after {
-        return Ok(Vec::new());
-    }
-    let mut changed: Vec<String> = Vec::new();
-    let from = repo.find_tree(before).map_err(Error::repo)?;
-    let to = repo.find_tree(after).map_err(Error::repo)?;
-    from.changes()
-        .map_err(Error::repo)?
-        .for_each_to_obtain_tree(
-            &to,
-            |change| -> std::result::Result<_, std::convert::Infallible> {
-                changed.push(change.location().to_string());
-                Ok(gix::object::tree::diff::Action::Continue(()))
-            },
-        )
-        .map_err(Error::repo)?;
-
     let mut marked: Vec<String> = Vec::new();
-    for path in changed {
+    for path in changed_paths(repo, before, after)? {
         if let Some(text) = blob_of(repo, after, &path)?
             && !blocks(&text).0.is_empty()
         {
@@ -702,6 +685,37 @@ fn marked_paths(
     marked.sort();
     marked.dedup();
     Ok(marked)
+}
+
+/// Every file path that differs between two trees: changed, added, or
+/// removed. Rename tracking is off, so a moved file names both its paths.
+fn changed_paths(
+    repo: &gix::Repository,
+    before: gix::ObjectId,
+    after: gix::ObjectId,
+) -> Result<Vec<String>> {
+    let mut changed: Vec<String> = Vec::new();
+    if before == after {
+        return Ok(changed);
+    }
+    let from = repo.find_tree(before).map_err(Error::repo)?;
+    let to = repo.find_tree(after).map_err(Error::repo)?;
+    from.changes()
+        .map_err(Error::repo)?
+        .options(|opts| {
+            opts.track_rewrites(None);
+        })
+        .for_each_to_obtain_tree(
+            &to,
+            |change| -> std::result::Result<_, std::convert::Infallible> {
+                if !change.entry_mode().is_tree() {
+                    changed.push(change.location().to_string());
+                }
+                Ok(gix::object::tree::diff::Action::Continue(()))
+            },
+        )
+        .map_err(Error::repo)?;
+    Ok(changed)
 }
 
 /// Every unresolved region standing in a chain's final tree, in path order
@@ -744,6 +758,12 @@ pub struct Attribution {
     pub resolutions: Vec<Resolution>,
     /// Regions the reader left alone, still carrying their markers.
     pub unresolved: Vec<Region>,
+    /// Paths the reader changed outside every region, sorted and deduped:
+    /// an unmarked line of a marked file, a marked file deleted, or any other
+    /// file added, changed, or removed. These edits belong to no step's
+    /// region, so they land in the last step with the rest of the working
+    /// tree.
+    pub outside: Vec<String>,
 }
 
 /// Work out which step each edit belongs to.
@@ -756,7 +776,9 @@ pub struct Attribution {
 /// An edit touching no region belongs to the last step and is therefore not
 /// returned at all — the marker tree *is* the post-rewrite tip's tree, so an
 /// unmarked edit is an edit to the final state, and attributing it earlier
-/// would put content into a commit the reader never looked at.
+/// would put content into a commit the reader never looked at. `outside`
+/// names the paths those edits touched. A chain that stopped at a tangle
+/// computes it the same way; what it means there is the caller's to decide.
 pub fn attribute(
     repo: &gix::Repository,
     chain: &Chain,
@@ -782,6 +804,7 @@ pub fn attribute(
 
     let mut resolutions: Vec<Resolution> = Vec::new();
     let mut unresolved: Vec<Region> = Vec::new();
+    let mut outside: Vec<String> = Vec::new();
 
     for path in &paths {
         // A path some step marked but the marker tree holds no blob at has
@@ -793,13 +816,18 @@ pub fn attribute(
         // the last step's tree carries the deletion, and no earlier step can
         // express it as a text replacement, so nothing is attributed.
         let Some(after) = blob_of(repo, resolved, path)? else {
+            outside.push(path.clone());
             continue;
         };
         let (found, _tangled) = blocks(&before);
         if found.is_empty() {
+            if before != after {
+                outside.push(path.clone());
+            }
             continue;
         }
         let hunks = line_hunks(&before, &after);
+        let mut ranges: Vec<std::ops::Range<usize>> = Vec::new();
 
         for block in &found {
             // Expand the block's range to absorb any hunk it overlaps, until
@@ -821,6 +849,7 @@ pub fn attribute(
                 }
                 range = next;
             }
+            ranges.push(range.clone());
 
             // Map the expanded range into the resolved blob. A hunk lying
             // entirely before the range shifts it by its net delta; a hunk
@@ -865,13 +894,39 @@ pub fn attribute(
                 });
             }
         }
+
+        // A hunk no region's expanded range took in is an edit outside every
+        // region. A pure insertion touching a range's end is the region's,
+        // the same overlap test the expansion uses with its ends widened.
+        let inside = |b: &std::ops::Range<usize>| {
+            ranges.iter().any(|r| {
+                if b.start == b.end {
+                    r.start <= b.start && b.start <= r.end
+                } else {
+                    b.start < r.end && r.start < b.end
+                }
+            })
+        };
+        if hunks.iter().any(|(b, _)| !inside(b)) {
+            outside.push(path.clone());
+        }
     }
+
+    // Every path no step marked: any change to it at all is outside.
+    for path in changed_paths(repo, chain.tree, resolved)? {
+        if paths.binary_search(&path).is_err() {
+            outside.push(path);
+        }
+    }
+    outside.sort();
+    outside.dedup();
 
     resolutions.sort_by(|a, b| a.path.cmp(&b.path).then(a.step.cmp(&b.step)));
     unresolved.sort_by(|a, b| a.path.cmp(&b.path).then(a.step.cmp(&b.step)));
     Ok(Attribution {
         resolutions,
         unresolved,
+        outside,
     })
 }
 

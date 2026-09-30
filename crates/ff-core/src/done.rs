@@ -412,6 +412,11 @@ fn finish_resolution(
     // What the reader fixed, every round counted.
     let fixed = round_regions.len() + carried.len();
 
+    // Edits outside every region land in the shown step with the rest of the
+    // working tree. Worked out now, named once the landing says what the
+    // commits became.
+    let outside = outside_edits(repo, &chain, &attribution.outside, &round_regions, carried)?;
+
     // 6. Land through the verb that owns the rewrite, clearing the hold and
     // the session inside the landing's own operation. The verb does the
     // rest: refs, carried branches, published count, worktree, arrival, and
@@ -436,6 +441,10 @@ fn finish_resolution(
         cascade,
         arrival,
     } = land_decided(repo, &rec, hold, &decided, verify)?;
+    let outside = match &outside {
+        Some(pending) => name_outside(repo, &chain, pending)?,
+        None => None,
+    };
 
     // The landing moved refs and rewrote the index to match: the staged
     // index is no longer provisional. Every exit above — a declining hook,
@@ -483,6 +492,141 @@ fn finish_resolution(
         still_held,
         arrival,
         cascade,
+        outside,
+    }))
+}
+
+/// Edits outside every region, before the landing: the shown step's index,
+/// and each path with the step its edits plainly belong to.
+struct PendingOutside {
+    shown: usize,
+    paths: Vec<(String, Option<usize>)>,
+}
+
+/// Whether the reader's edits outside every region went somewhere other than
+/// the commits the session was about. They land in the shown step, which is
+/// the right place when every region fixed this session is the shown step's
+/// own: the reader was resolving that commit. Otherwise they are named, and a
+/// path whose edits plainly belong to one earlier step gets that step as its
+/// hint: the one step owning regions in the path, or failing that the one
+/// step owning regions in the whole session. No hint when the shown step's
+/// own commit changes the path, since `ff absorb` moves whole files and would
+/// take that change along.
+fn outside_edits(
+    repo: &gix::Repository,
+    chain: &rewrite::Chain,
+    outside: &[String],
+    round_regions: &[rewrite::Region],
+    carried: &[rewrite::Resolution],
+) -> Result<Option<PendingOutside>> {
+    let Some(shown) = chain.steps.len().checked_sub(1) else {
+        return Ok(None);
+    };
+    if outside.is_empty() {
+        return Ok(None);
+    }
+    let owners: Vec<(&str, usize)> = round_regions
+        .iter()
+        .map(|r| (r.path.as_str(), r.step))
+        .chain(carried.iter().map(|r| (r.path.as_str(), r.step)))
+        .filter(|&(_, step)| step != shown)
+        .collect();
+    if owners.is_empty() {
+        return Ok(None);
+    }
+    let unique = |steps: &mut Vec<usize>| {
+        steps.sort();
+        steps.dedup();
+        (steps.len() == 1).then(|| steps[0])
+    };
+    let mut session: Vec<usize> = owners.iter().map(|&(_, step)| step).collect();
+    let session = unique(&mut session);
+
+    let old = gix::ObjectId::from_hex(chain.steps[shown].old.as_bytes()).map_err(Error::repo)?;
+    let commit = repo.find_object(old).map_err(Error::repo)?.into_commit();
+    let tree = commit.tree_id().map_err(Error::repo)?.detach();
+    let parent_tree = match commit.parent_ids().next() {
+        Some(parent) => Some(tree_of(repo, parent.detach())?),
+        None => None,
+    };
+
+    let mut paths = Vec::new();
+    for path in outside {
+        let mut steps: Vec<usize> = owners
+            .iter()
+            .filter(|&&(p, _)| p == path)
+            .map(|&(_, step)| step)
+            .collect();
+        let into = if steps.is_empty() {
+            session
+        } else {
+            unique(&mut steps)
+        };
+        let own = entry_at(repo, tree, path)?
+            != match parent_tree {
+                Some(parent) => entry_at(repo, parent, path)?,
+                None => None,
+            };
+        paths.push((path.clone(), into.filter(|_| !own)));
+    }
+    Ok(Some(PendingOutside { shown, paths }))
+}
+
+/// The object at `path` in `tree`, if any.
+fn entry_at(
+    repo: &gix::Repository,
+    tree: gix::ObjectId,
+    path: &str,
+) -> Result<Option<gix::ObjectId>> {
+    let tree = repo.find_tree(tree).map_err(Error::repo)?;
+    Ok(tree
+        .lookup_entry_by_path(path)
+        .map_err(Error::repo)?
+        .map(|entry| entry.object_id()))
+}
+
+/// Name the outside edits by the commits the landing wrote, read from the
+/// landing operation's rewrite map. Nothing is named when the shown step did
+/// not survive as a commit; a hint whose step did not survive is left out.
+fn name_outside(
+    repo: &gix::Repository,
+    chain: &rewrite::Chain,
+    pending: &PendingOutside,
+) -> Result<Option<crate::model::OutsideEdits>> {
+    let Some(tip) = refs::ref_target(repo, &crate::ops::ops_ref_of(repo))? else {
+        return Ok(None);
+    };
+    let op = crate::ops::walk::decode(repo, tip)?;
+    let Some(record) = op.record()? else {
+        return Ok(None);
+    };
+    let new_of = |step: usize| {
+        let old = &chain.steps[step].old;
+        record
+            .rewrites
+            .iter()
+            .find(|r| &r.old == old)
+            .map(|r| r.new.clone())
+    };
+    let Some(commit) = new_of(pending.shown) else {
+        return Ok(None);
+    };
+    let moves = pending
+        .paths
+        .iter()
+        .filter_map(|(path, into)| {
+            let into = new_of((*into)?)?;
+            Some(crate::model::OutsideMove {
+                path: path.clone(),
+                into,
+            })
+        })
+        .collect();
+    Ok(Some(crate::model::OutsideEdits {
+        commit,
+        subject: chain.steps[pending.shown].subject.clone(),
+        paths: pending.paths.iter().map(|(p, _)| p.clone()).collect(),
+        moves,
     }))
 }
 

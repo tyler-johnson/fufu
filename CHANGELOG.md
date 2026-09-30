@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- [`ff done`](docs/reference/cli/done.md) names the commit that received resolution edits made outside the conflict markers, with an [`ff absorb`](docs/reference/cli/absorb.md) line to move them. JSON: `done.outside`.
+
+### Fixed
+
+- The [`ff resolve`](docs/reference/cli/resolve.md) and `ff done` help and the [held rewrites](docs/concepts/held-rewrites.md) page now say that an edit outside every marker lands in the last replayed commit.
+
 ## v0.19.0 — 2026-09-28
 
 ### Added

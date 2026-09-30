@@ -381,6 +381,50 @@ fn done_stack(fx: &Fixture) -> (String, String) {
     (session, c1)
 }
 
+const LABEL_A: &str = "top\nfunction label(text) {\n    click(text);\n    wait();\n    one();\n    two();\n    three();\n}\nuse(label(\"a\"));\nbottom\n";
+const LABEL_B: &str = "top\nfunction read() {\n    wait();\n    one();\n    two();\n    three();\n}\nfunction label(text) {\n    click(text);\n    return read();\n}\nuse(label(\"a\"));\nbottom\n";
+const LABEL_EDIT: &str = "top\nfunction label(finding) {\n    click(finding.text, finding.id);\n    wait();\n    one();\n    two();\n    three();\n}\nuse(label(\"a\"));\nbottom\n";
+const LABEL_FIXED: &str = "top\nfunction read() {\n    wait();\n    one();\n    two();\n    three();\n}\nfunction label(finding) {\n    click(finding.text, finding.id);\n    return read();\n}\nuse(label(\"a\"));\nbottom\n";
+
+/// `A` adds `label(text)`, `B` extracts `read()` out of it, and `C` is a
+/// later commit. A session renames `A`'s parameter, so `B` cannot replay over
+/// it, and its region covers only the `click` line: the signature line stays
+/// outside every region. `later` is `C`'s change. Leaves the done held on `B`
+/// and returns the session branch.
+fn label_stack(fx: &Fixture, later: impl FnOnce(&Fixture)) -> String {
+    fx.write("f.txt", "top\nbottom\n");
+    let _base = fx.commit("base");
+    fx.write("f.txt", LABEL_A);
+    let a = fx.commit("A: add label");
+    fx.write("f.txt", LABEL_B);
+    let _b = fx.commit("B: extract read, re-add label");
+    later(fx);
+    let _c = fx.commit("C: unrelated later commit");
+
+    let repo = fx.repo();
+    let (outcome, _ctx) = ff_core::edit::edit(
+        &repo,
+        &a,
+        &prov(),
+        Some(NOW),
+        vec!["ff".into(), "edit".into()],
+    )
+    .unwrap();
+    let session = match outcome {
+        ff_core::EditOutcome::Opened(r) => r.session,
+        other => panic!("a session must open, got {other:?}"),
+    };
+    drop(repo);
+    fx.write("f.txt", LABEL_EDIT);
+
+    let held = done_call(fx, NOW + 10).unwrap();
+    assert!(
+        matches!(held, DoneOutcome::Held(_)),
+        "the precondition is a done held on B, got {held:?}"
+    );
+    session
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -2765,4 +2809,136 @@ fn a_conflict_beneath_a_merge_is_shown_first_and_the_merge_is_the_next_round() {
         1,
         "the merge landed as a merge: {merge}"
     );
+}
+
+#[test]
+fn an_edit_outside_the_markers_is_named_with_the_move_that_fixes_it() {
+    let fx = Fixture::new();
+    ident(&fx);
+    label_stack(&fx, |fx| fx.write("g.txt", "later\n"));
+
+    open_resolution(&fx, NOW + 100);
+    fix(&fx, "f.txt", LABEL_FIXED);
+    let report = resolved(&fx, NOW + 200);
+
+    // Newest-first: C', B', A'.
+    let repo = fx.repo();
+    let base = oid(&fx.git(&["rev-parse", "HEAD~3"]));
+    let landed = commits_between(&repo, oid(&report.new_tip), base);
+    assert_eq!(landed.len(), 3, "A, B and C landed: {landed:?}");
+    let outside = report
+        .outside
+        .as_ref()
+        .expect("the edit outside B's region is named");
+    assert_eq!(outside.commit, landed[0], "it landed in C");
+    assert_eq!(outside.subject, "C: unrelated later commit");
+    assert_eq!(outside.paths, ["f.txt"]);
+    assert_eq!(outside.moves.len(), 1, "{:?}", outside.moves);
+    assert_eq!(outside.moves[0].path, "f.txt");
+    assert_eq!(
+        outside.moves[0].into, landed[1],
+        "B owns the region in f.txt"
+    );
+    assert!(
+        file_in(&repo, oid(&landed[1]), "f.txt")
+            .unwrap()
+            .contains("function label(text)"),
+        "the rule stands: B keeps its signature until the move"
+    );
+    drop(repo);
+
+    // The suggested move puts the edit in B and takes it out of C.
+    let repo = fx.repo();
+    let mut opts = absorb_opts(&outside.moves[0].into, vec!["f.txt".into()]);
+    opts.from = Some(vec![ff_core::absorb::Endpoint::Commit(
+        oid(&outside.commit),
+    )]);
+    let (outcome, _ctx) = ff_core::absorb::move_change(&repo, &opts, &prov()).unwrap();
+    assert!(
+        matches!(outcome, ff_core::MoveOutcome::Moved(_)),
+        "the move lands, got {outcome:?}"
+    );
+    drop(repo);
+
+    let repo = fx.repo();
+    let moved = commits_between(&repo, oid(&tip(&fx, "main")), base);
+    assert_eq!(moved.len(), 3, "the move dropped nothing: {moved:?}");
+    assert_eq!(
+        file_in(&repo, oid(&moved[1]), "f.txt").as_deref(),
+        Some(LABEL_FIXED),
+        "B carries label(finding)"
+    );
+    assert_eq!(
+        file_in(&repo, oid(&moved[0]), "f.txt"),
+        file_in(&repo, oid(&moved[1]), "f.txt"),
+        "C no longer touches f.txt"
+    );
+}
+
+#[test]
+fn an_outside_edit_to_a_file_the_last_commit_changes_gets_no_move() {
+    let fx = Fixture::new();
+    ident(&fx);
+    // C changes f.txt too, far from B's region: moving the file would take
+    // C's own change along.
+    label_stack(&fx, |fx| {
+        fx.write("f.txt", &LABEL_B.replace("bottom", "BOTTOM"))
+    });
+
+    open_resolution(&fx, NOW + 100);
+    fix(&fx, "f.txt", &LABEL_FIXED.replace("bottom", "BOTTOM"));
+    let report = resolved(&fx, NOW + 200);
+
+    let outside = report
+        .outside
+        .as_ref()
+        .expect("the edit outside B's region is named");
+    assert_eq!(outside.subject, "C: unrelated later commit");
+    assert_eq!(outside.paths, ["f.txt"]);
+    assert!(outside.moves.is_empty(), "no move: {:?}", outside.moves);
+}
+
+#[test]
+fn an_outside_edit_beside_the_last_commits_own_region_is_not_named() {
+    let fx = Fixture::new();
+    ident(&fx);
+    // `c2`, the last commit, owns the only region: the reader was resolving
+    // the commit the edit lands in.
+    done_stack(&fx);
+
+    open_resolution(&fx, NOW + 100);
+    fix(&fx, "shared.txt", "line1\nRESOLVED\nline3\n");
+    fix(&fx, "extra.txt", "extra\n");
+    let report = resolved(&fx, NOW + 200);
+
+    assert!(report.outside.is_none(), "{:?}", report.outside);
+    assert_eq!(
+        file_in(&fx.repo(), oid(&report.new_tip), "extra.txt").as_deref(),
+        Some("extra\n"),
+        "the edit landed in the last commit"
+    );
+}
+
+#[test]
+fn a_new_file_in_a_restack_resolution_is_named_with_a_move_to_the_conflict() {
+    let fx = Fixture::new();
+    ident(&fx);
+    restack_stack(&fx);
+    hold_a_restack(&fx);
+
+    open_resolution(&fx, NOW + 100);
+    fix(&fx, "f.txt", "RESOLVED\n");
+    fix(&fx, "extra.txt", "extra\n");
+    let report = resolved(&fx, NOW + 200);
+
+    // Newest-first: f3', f2', f1'. The new file has no region of its own, so
+    // its move goes to the one commit that owned a region.
+    let repo = fx.repo();
+    let landed = commits_between(&repo, oid(&report.new_tip), oid(&tip(&fx, "main")));
+    let outside = report.outside.as_ref().expect("the new file is named");
+    assert_eq!(outside.commit, landed[0], "it landed in f3");
+    assert_eq!(outside.subject, "f3");
+    assert_eq!(outside.paths, ["extra.txt"]);
+    assert_eq!(outside.moves.len(), 1, "{:?}", outside.moves);
+    assert_eq!(outside.moves[0].into, landed[2], "f1 owned the conflict");
 }

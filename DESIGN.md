@@ -985,9 +985,11 @@ when a machine with only `ff` on it is a working development machine.
 - **Resolution absorb-back edges** — settled: an edit outside every marked
   region belongs to the last step, because the marker tree *is* the
   post-rewrite tip's tree, so nothing lands in a commit the reader never looked
-  at. The second round is settled too: a tangle is materialized as the next round
-  on the same session rather than held again, so the reader fixes what they
-  were shown and `ff done` shows them the next conflict.
+  at. `ff done` reports that landing when the regions belonged to earlier
+  commits, naming the commit and an `ff absorb` move. The second round is
+  settled too: a tangle is materialized as the next round on the same session
+  rather than held again, so the reader fixes what they were shown and
+  `ff done` shows them the next conflict.
 - **Edit-session boundaries** — fufu's own verbs are settled (close verbs
   attempt `done` land-if-clean; `ff switch` parks the session; explicit
   abandon), but: what a *foreign* switch or commit does to an open session;
