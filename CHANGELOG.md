@@ -6,6 +6,7 @@
 
 - [`ff commit`](docs/reference/cli/commit.md) run from a subdirectory could not find a hook under `.git/hooks`, ran hooks under `core.hooksPath` against the wrong worktree, and handed `prepare-commit-msg` and `commit-msg` a message path that did not resolve.
 - Commit hooks ran with relative `GIT_DIR` and `GIT_WORK_TREE`, so a hook that changed directory, as lefthook does for a job with `root:`, lost the repository. Both are absolute now, for every verb that runs hooks.
+- [`ff worktree`](docs/reference/cli/worktree.md) given a remote's branch, tag, or commit created a branch with that literal name at HEAD, so `ff worktree ../wt origin/main` made `refs/heads/origin/main` and left `origin/main` ambiguous. A remote's branch now becomes a local branch of its name tracking it, or a branch named after the directory forked from it when that name is taken, and a tag or commit starts a branch named after the directory there. JSON: `added.tracking`, `added.forked_from`.
 
 ## v0.19.1 — 2026-09-30
 

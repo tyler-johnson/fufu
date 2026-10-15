@@ -1392,6 +1392,11 @@ pub struct WorktreeAddReport {
     pub branch: String,
     /// The branch did not exist and this operation made it.
     pub created_branch: bool,
+    /// The remote's branch a new branch tracks, as `origin/main`.
+    pub tracking: Option<String>,
+    /// What a new branch forked from: `origin/main`, a branch, or a short sha.
+    /// `None` for one created at HEAD or a tracking mint.
+    pub forked_from: Option<String>,
     pub head: String,
     /// The chain the new worktree's operations will land on.
     pub chain: String,

@@ -120,43 +120,57 @@ pub fn add_worktree(
         )
     };
 
-    // The branch is decided before the layout is written. A name that
-    // resolves is used as-is; one that does not is validated and created at
-    // HEAD; an unnamed destination takes the directory's name, or a minted
-    // petname when that name would not stand as a branch or is already one.
-    let named = branch.map(str::to_string);
-    let (branch_name, created_branch) = if named.as_deref().is_some_and(|name| {
-        crate::refs::ref_target(repo, &format!("refs/heads/{name}"))
-            .is_ok_and(|target| target.is_some())
-    }) {
-        (named.expect("a name was offered"), false)
-    } else {
-        let name = match named {
-            Some(name) => {
-                crate::branch::validate_name(&name)?;
-                name
+    // Refused before the branch is decided: a mint writes the branch, its
+    // metadata, and on a tracking mint its upstream, none of which a refusal
+    // inside `create` would take back.
+    destination_free(path)?;
+    let under = crate::snapshot::chain::base_commit(&head)?;
+    let (branch_name, created_branch, tracking, forked_from) =
+        match start(repo, path, branch, under)? {
+            Start::Existing(name) => (name, false, None, None),
+            Start::AtHead(name) => {
+                let at = under.ok_or_else(unborn)?;
+                crate::branch::create_at(
+                    repo,
+                    &name,
+                    at,
+                    now,
+                    "branch: created for a new worktree",
+                )?;
+                (name, true, None, None)
             }
-            None => match path
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-            {
-                Some(candidate)
-                    if crate::branch::validate_name(&candidate).is_ok()
-                        && crate::refs::ref_target(repo, &format!("refs/heads/{candidate}"))?
-                            .is_none() =>
-                {
-                    candidate
+            Start::Mint {
+                name,
+                at,
+                forked_from,
+                parent,
+                tracking,
+            } => {
+                crate::switch::clear_stale_open(repo, &name, now)?;
+                crate::switch::mint_branch(
+                    repo,
+                    &crate::switch::Mint {
+                        name: &name,
+                        at,
+                        forked_from: forked_from.as_deref(),
+                        parent: parent.as_deref(),
+                        tracking: tracking.as_ref().map(|(_, short)| short.as_str()),
+                        opened: crate::switch::Opened::default(),
+                    },
+                    now,
+                )?;
+                if let Some((remote, _)) = &tracking {
+                    crate::snapshot::config::set_branch_upstream(repo, &name, remote)?;
+                    // The remote's tip is where the person started, so the first
+                    // push leases against it, as a tracking switch's does.
+                    crate::seen::mark(repo, &name, at, now)?;
                 }
-                _ => crate::petname::mint(repo)?,
-            },
+                (name, true, tracking.map(|(_, short)| short), forked_from)
+            }
         };
-        let at = crate::snapshot::chain::base_commit(&head)?.ok_or_else(unborn)?;
-        crate::branch::create_at(repo, &name, at, now, "branch: created for a new worktree")?;
-        (name, true)
-    };
 
-    // The primitive refuses a non-empty destination and a branch another
-    // worktree holds, so neither check is repeated here.
+    // The primitive refuses a branch another worktree holds, so the check is
+    // not repeated here.
     let created = create(repo, path, &branch_name, now)?;
 
     // Lay the new worktree's chain floor. Reconciliation is the existing
@@ -193,11 +207,13 @@ pub fn add_worktree(
     // from the world and report a deletion nobody performed. The branch is
     // still named by the `WorktreeEffect`, which is what undo reads.
     let planned = observe_refs(repo)?;
-    let mut record = OpRecord::new(
-        "worktree",
-        format!("add worktree {} on {}", created.id, branch_name),
-        now,
-    );
+    let mut summary = format!("add worktree {} on {}", created.id, branch_name);
+    if let Some(tracked) = &tracking {
+        summary.push_str(&format!(", tracking {tracked}"));
+    } else if let Some(from) = &forked_from {
+        summary.push_str(&format!(", forked from {from}"));
+    }
+    let mut record = OpRecord::new("worktree", summary, now);
     record.argv = argv;
     record.worktree = vec![crate::ops::record::WorktreeEffect::Add {
         id: created.id.clone(),
@@ -228,12 +244,111 @@ pub fn add_worktree(
             path: created.path,
             branch: branch_name,
             created_branch,
+            tracking,
+            forked_from,
             head: created.head.to_string(),
             chain: crate::ops::ops_ref(&created.id),
             warnings,
         },
         ctx,
     ))
+}
+
+/// What the second argument came to, decided before anything is written.
+enum Start {
+    /// A local branch, checked out as it stands.
+    Existing(String),
+    /// A new branch at HEAD's commit: the directory's name when no argument
+    /// was given, or a word that named nothing.
+    AtHead(String),
+    /// A new branch at a remote's branch or a revision.
+    Mint {
+        name: String,
+        at: gix::ObjectId,
+        forked_from: Option<String>,
+        parent: Option<String>,
+        /// `(origin, origin/main)` on a tracking mint.
+        tracking: Option<(String, String)>,
+    },
+}
+
+/// The ladder `ff switch` climbs, as far as a worktree allows: a local
+/// branch as it stands; a remote's branch under its own name, tracking it;
+/// a revision under the directory's name; and a word that names nothing as a
+/// new branch at HEAD.
+///
+/// It parts from switch on a remote's branch whose name is already a local
+/// branch. Switch continues the local one, but the primary checkout nearly
+/// always holds it, so the add forks a branch named after the directory at
+/// the remote's tip instead.
+///
+/// `under` is the commit under the open change, what `@` resolves to.
+fn start(
+    repo: &gix::Repository,
+    path: &Path,
+    arg: Option<&str>,
+    under: Option<gix::ObjectId>,
+) -> Result<Start> {
+    let Some(raw) = arg else {
+        return Ok(Start::AtHead(directory_name(repo, path)?));
+    };
+    if crate::refs::ref_target(repo, &format!("refs/heads/{raw}"))?.is_some() {
+        return Ok(Start::Existing(raw.to_string()));
+    }
+
+    if let Some(hit) = crate::switch::remote_branch_of(repo, raw)? {
+        if crate::refs::ref_target(repo, &format!("refs/heads/{}", hit.local))?.is_some() {
+            return Ok(Start::Mint {
+                name: directory_name(repo, path)?,
+                at: hit.tip,
+                forked_from: Some(hit.short.clone()),
+                parent: Some(hit.short),
+                tracking: None,
+            });
+        }
+        crate::branch::validate_name(&hit.local)?;
+        return Ok(Start::Mint {
+            name: hit.local,
+            at: hit.tip,
+            forked_from: None,
+            parent: None,
+            tracking: Some((hit.remote, hit.short)),
+        });
+    }
+
+    // A revision. `@` lands on the commit under the open change and carries
+    // nothing; a word that names nothing is a new branch, as it always was.
+    match crate::switch::resolve_fork_point(repo, Some(raw), under) {
+        Ok(point) => Ok(Start::Mint {
+            name: directory_name(repo, path)?,
+            at: point.at,
+            forked_from: Some(point.forked_from),
+            parent: point.parent,
+            tracking: None,
+        }),
+        Err(err) if err.id() == "usage/revset-unknown-revision" => {
+            crate::branch::validate_name(raw)?;
+            Ok(Start::AtHead(raw.to_string()))
+        }
+        Err(err) => Err(err),
+    }
+}
+
+/// The destination's name, or a minted petname when that name would not
+/// stand as a branch or is already one.
+fn directory_name(repo: &gix::Repository, path: &Path) -> Result<String> {
+    match path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+    {
+        Some(candidate)
+            if crate::branch::validate_name(&candidate).is_ok()
+                && crate::refs::ref_target(repo, &format!("refs/heads/{candidate}"))?.is_none() =>
+        {
+            Ok(candidate)
+        }
+        _ => crate::petname::mint(repo),
+    }
 }
 
 /// The destination is free: no file, and no directory holding anything. An

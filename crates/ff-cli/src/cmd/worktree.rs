@@ -59,7 +59,12 @@ pub(crate) fn add(ctx: &Ctx, path: &Path, branch: Option<&str>) -> Result<()> {
         report.branch
     );
     if report.created_branch {
-        println!("{}", crate::render::paint_dim("  on a new branch", colored));
+        let line = match (&report.tracking, &report.forked_from) {
+            (Some(tracked), _) => format!("  on a new branch, tracking {tracked}"),
+            (None, Some(from)) => format!("  on a new branch, forked from {from}"),
+            (None, None) => "  on a new branch".to_string(),
+        };
+        println!("{}", crate::render::paint_dim(&line, colored));
     }
     println!(
         "{}",

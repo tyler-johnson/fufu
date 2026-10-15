@@ -25,7 +25,7 @@ Arguments:
           Create a checkout at this path with its own operation chain
 
   [branch]
-          Branch to check out; omitted creates one named after the directory
+          Branch to check out; a remote's branch, tag, or commit starts a new one there; omitted creates one named after the directory
 
 Options:
   -d, --delete <worktree>
@@ -61,7 +61,7 @@ Options:
 
 ## Creating and using a worktree
 
-`ff worktree <path> [<branch>]` creates a checkout sharing this repository's objects and refs, with its own files, index, HEAD, and lock. With no branch, it creates one named after the directory, or an automatic name if that is taken. A branch checked out elsewhere is refused.
+`ff worktree <path> [<branch>]` creates a checkout sharing this repository's objects and refs, with its own files, index, HEAD, and lock. A local branch is checked out as it stands. A remote's branch, as `origin/main` or a bare name one remote holds, becomes a local branch of the same name tracking it, or a branch named after the directory forked from it when that name is already a local branch. A tag or commit starts a branch named after the directory there. A name that resolves to nothing becomes a new branch at HEAD. With no branch, it creates one named after the directory, or an automatic name if that is taken. A branch checked out elsewhere is refused.
 
 Creation records an earliest recovery point. A worktree created outside fufu gets that point on its first fufu command; earlier uncaptured state is not available to undo. Use `ff -C <path>` for commands in another worktree, or explicitly change directory there.
 

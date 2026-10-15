@@ -571,7 +571,7 @@ pub enum Command {
         /// Create a checkout at this path with its own operation chain
         #[arg(value_name = "path", conflicts_with_all = ["delete", "at", "at_op"])]
         path: Option<PathBuf>,
-        /// Branch to check out; omitted creates one named after the directory
+        /// Branch to check out; a remote's branch, tag, or commit starts a new one there; omitted creates one named after the directory
         #[arg(value_name = "branch", requires = "path")]
         branch: Option<String>,
         /// Capture eligible work and remove a worktree, by path or listed ID

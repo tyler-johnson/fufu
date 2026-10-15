@@ -229,14 +229,14 @@ fn resolve_target(
 }
 
 /// One branch a remote holds, found by a target.
-struct RemoteHit {
+pub(crate) struct RemoteHit {
     /// `origin`
-    remote: String,
+    pub remote: String,
     /// `origin/spike` — the spelling every report uses.
-    short: String,
+    pub short: String,
     /// `spike` — the name the branch takes here.
-    local: String,
-    tip: gix::ObjectId,
+    pub local: String,
+    pub tip: gix::ObjectId,
 }
 
 /// The remote rung: `raw` qualified as `<remote>/<branch>` for a configured
@@ -244,7 +244,7 @@ struct RemoteHit {
 /// remotes holding the bare name is refused, listing the qualified
 /// spellings. `<remote>/HEAD` is symbolic and is not a branch: it falls
 /// through to the revision rung, as it always has.
-fn remote_branch_of(repo: &gix::Repository, raw: &str) -> Result<Option<RemoteHit>> {
+pub(crate) fn remote_branch_of(repo: &gix::Repository, raw: &str) -> Result<Option<RemoteHit>> {
     let remotes: Vec<String> = repo
         .remote_names()
         .into_iter()

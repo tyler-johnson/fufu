@@ -10,7 +10,7 @@ Every recipe starts independently in an initialized scratch repository on `featu
 <a id="each-tree-has-its-own-open-change"></a>
 ## Create a checkout and work independently
 
-Prerequisite: `../review` does not exist and the branch name `review` is available. Without an explicit branch, the directory name becomes a new branch name; if already taken, fufu generates a name. Supply a second argument to choose an existing available branch.
+Prerequisite: `../review` does not exist and the branch name `review` is available. Without an explicit branch, the directory name becomes a new branch name; if already taken, fufu generates a name. Supply a second argument to choose an existing available branch, or a remote's branch, tag, or commit to start a new branch there.
 
 <!-- transcript:independent -->
 ```console

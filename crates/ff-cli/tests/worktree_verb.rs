@@ -275,6 +275,131 @@ fn add_refuses_a_branch_another_worktree_holds() {
     assert!(!other.exists(), "no checkout was made");
 }
 
+/// Two commits, so a branch made at the first is told apart from one made at
+/// HEAD. Returns `(first, second)`.
+fn two_commits(fx: &Fixture) -> (String, String) {
+    fx.write("a.txt", "a\n");
+    let first = fx.commit("first");
+    fx.write("a.txt", "b\n");
+    let second = fx.commit("second");
+    (first, second)
+}
+
+/// A configured remote holding `branch` at `sha`, with nothing to fetch from.
+fn with_remote(fx: &Fixture, remote: &str, branch: &str, sha: &str) {
+    fx.set_config(&format!("remote.{remote}.url"), "file:///nonexistent");
+    fx.set_config(
+        &format!("remote.{remote}.fetch"),
+        &format!("+refs/heads/*:refs/remotes/{remote}/*"),
+    );
+    fx.git(&[
+        "update-ref",
+        &format!("refs/remotes/{remote}/{branch}"),
+        sha,
+    ]);
+}
+
+fn tip(fx: &Fixture, full_ref: &str) -> Option<String> {
+    let out = fx.try_git_in(&fx.path(), &["rev-parse", "--verify", "-q", full_ref]);
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// The issue's repro: `origin/main` names a remote's branch whose local name
+/// is taken, so the add forks a branch named after the directory at the
+/// remote's tip and leaves `origin/main` meaning the remote's.
+#[test]
+fn add_on_a_remote_branch_whose_name_is_taken_forks_one_named_after_the_directory() {
+    let fx = repo();
+    let (first, _) = two_commits(&fx);
+    with_remote(&fx, "origin", "main", &first);
+    let wt = fx.root().join("wt");
+
+    let body = ok(&fx, &["worktree", wt.to_str().unwrap(), "origin/main"]);
+    assert!(body.contains("forked from origin/main"), "{body}");
+    assert_eq!(tip(&fx, "refs/heads/wt").as_deref(), Some(first.as_str()));
+    assert_eq!(tip(&fx, "refs/heads/origin/main"), None);
+    assert_eq!(
+        fx.git(&["rev-parse", "--symbolic-full-name", "origin/main"])
+            .trim(),
+        "refs/remotes/origin/main"
+    );
+
+    let wt2 = fx.root().join("wt2");
+    let v = json(&ff(
+        &fx,
+        &["--json", "worktree", wt2.to_str().unwrap(), "origin/main"],
+    ));
+    assert_eq!(v["data"]["added"]["forked_from"], "origin/main", "{v}");
+    assert!(v["data"]["added"]["tracking"].is_null(), "{v}");
+}
+
+/// A remote's branch with no local namesake becomes one, tracking it.
+#[test]
+fn add_on_a_remote_branch_mints_it_tracking() {
+    let fx = repo();
+    let (first, _) = two_commits(&fx);
+    with_remote(&fx, "origin", "spike", &first);
+    let wt = fx.root().join("wt");
+
+    let body = ok(&fx, &["worktree", wt.to_str().unwrap(), "origin/spike"]);
+    assert!(body.contains("tracking origin/spike"), "{body}");
+    assert_eq!(
+        tip(&fx, "refs/heads/spike").as_deref(),
+        Some(first.as_str())
+    );
+    assert_eq!(fx.git(&["config", "branch.spike.remote"]).trim(), "origin");
+}
+
+/// A bare name one remote holds is that remote's branch.
+#[test]
+fn add_with_a_bare_name_one_remote_holds_mints_it_tracking() {
+    let fx = repo();
+    let (first, _) = two_commits(&fx);
+    with_remote(&fx, "origin", "spike", &first);
+    let wt = fx.root().join("wt");
+
+    let body = ok(&fx, &["worktree", wt.to_str().unwrap(), "spike"]);
+    assert!(body.contains("tracking origin/spike"), "{body}");
+    assert_eq!(
+        tip(&fx, "refs/heads/spike").as_deref(),
+        Some(first.as_str())
+    );
+    assert_eq!(fx.git(&["config", "branch.spike.remote"]).trim(), "origin");
+}
+
+/// A tag starts a branch named after the directory where it points.
+#[test]
+fn add_on_a_tag_mints_a_branch_named_after_the_directory() {
+    let fx = repo();
+    let (first, _) = two_commits(&fx);
+    fx.git(&["tag", "v1", &first]);
+    let wt = fx.root().join("wt");
+
+    let body = ok(&fx, &["worktree", wt.to_str().unwrap(), "v1"]);
+    assert!(body.contains("forked from"), "{body}");
+    assert_eq!(tip(&fx, "refs/heads/wt").as_deref(), Some(first.as_str()));
+    assert_eq!(tip(&fx, "refs/heads/v1"), None);
+}
+
+/// A word that names nothing is a new branch at HEAD, as it always was.
+#[test]
+fn add_with_a_name_that_resolves_to_nothing_creates_it_at_head() {
+    let fx = repo();
+    let (_, second) = two_commits(&fx);
+    let wt = fx.root().join("wt");
+
+    let body = ok(&fx, &["worktree", wt.to_str().unwrap(), "fresh"]);
+    assert!(body.contains("on a new branch"), "{body}");
+    assert!(!body.contains("forked from"), "{body}");
+    assert!(!body.contains("tracking"), "{body}");
+    assert_eq!(
+        tip(&fx, "refs/heads/fresh").as_deref(),
+        Some(second.as_str())
+    );
+}
+
 /// The load-bearing earn: the capture lands in the bay's own chain before
 /// the teardown, so the uncommitted work survives, the output says where it
 /// went, and the bay stands under the orphan section afterwards.
