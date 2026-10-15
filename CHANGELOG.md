@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- [`ff commit`](docs/reference/cli/commit.md) run from a subdirectory could not find a hook under `.git/hooks`, ran hooks under `core.hooksPath` against the wrong worktree, and handed `prepare-commit-msg` and `commit-msg` a message path that did not resolve.
+- Commit hooks ran with relative `GIT_DIR` and `GIT_WORK_TREE`, so a hook that changed directory, as lefthook does for a job with `root:`, lost the repository. Both are absolute now, for every verb that runs hooks.
+
 ## v0.19.1 — 2026-09-30
 
 ### Changed

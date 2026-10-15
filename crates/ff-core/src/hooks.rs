@@ -14,7 +14,7 @@
 //! `git commit` and not from `rebase`, and every other verb here is a
 //! rebase.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::error::{Error, Result};
 
@@ -89,6 +89,13 @@ fn find_hook(repo: &gix::Repository, name: &str) -> Result<Option<PathBuf>> {
     Ok(Some(hook))
 }
 
+/// A repository path as a hook needs it. gix keeps the spelling discovery
+/// found, relative to wherever `ff` was invoked (`../.git` from a
+/// subdirectory), and a hook runs from the worktree root and may `cd` again.
+fn absolute(path: &Path) -> Result<PathBuf> {
+    std::path::absolute(path).map_err(Error::repo)
+}
+
 /// Whether any of `names` is going to run at all. A verb populates the index
 /// before its first hook so hook-runners keyed on staging see the change
 /// staged, and that work — a tree assembly and two index writes — is worth
@@ -105,14 +112,16 @@ pub fn will_run(repo: &gix::Repository, names: &[&str]) -> Result<bool> {
     Ok(false)
 }
 
-/// Run a hook from the worktree root with the given arguments. `Ok(false)`
-/// = no hook to run; `Ok(true)` = ran and succeeded; a non-zero exit is an
-/// error carrying the hook's name, whose exit is `verb`'s own `--no-verify`
-/// spelling — `verb` is the bare verb name, `commit` or `absorb`.
+/// Run a hook from the worktree root with the given arguments and absolute
+/// `GIT_DIR` and `GIT_WORK_TREE`. `Ok(false)` = no hook to run; `Ok(true)` =
+/// ran and succeeded; a non-zero exit is an error carrying the hook's name,
+/// whose exit is `verb`'s own `--no-verify` spelling — `verb` is the bare
+/// verb name, `commit` or `absorb`.
 fn run(repo: &gix::Repository, name: &str, args: &[&std::ffi::OsStr], verb: &str) -> Result<bool> {
     let Some(hook) = find_hook(repo, name)? else {
         return Ok(false);
     };
+    let hook = absolute(&hook)?;
     // The hook path is spliced into an `sh -c` command line, where
     // backslashes are escapes: hand sh POSIX separators, as git does.
     #[cfg(windows)]
@@ -124,12 +133,14 @@ fn run(repo: &gix::Repository, name: &str, args: &[&std::ffi::OsStr], verb: &str
             vec![],
         )
     })?;
-    let mut prepare = gix::command::prepare(hook)
-        .with_shell()
-        .with_context(repo.command_context().map_err(Error::repo)?);
+    let workdir = absolute(workdir)?;
+    let mut ctx = repo.command_context().map_err(Error::repo)?;
+    ctx.git_dir = Some(absolute(repo.git_dir())?);
+    ctx.worktree_dir = Some(workdir.clone());
+    let mut prepare = gix::command::prepare(hook).with_shell().with_context(ctx);
     prepare.args = args.iter().map(|a| a.to_os_string()).collect();
     let mut cmd: std::process::Command = prepare.into();
-    cmd.current_dir(workdir)
+    cmd.current_dir(&workdir)
         // git sets this for every commit hook it runs from a command that
         // will not bring an editor up. fufu never opens one at close time,
         // so it is always set.
@@ -173,9 +184,8 @@ struct MessageFile {
 
 impl MessageFile {
     fn write(repo: &gix::Repository, message: &str) -> Result<Self> {
-        let path = repo
-            .git_dir()
-            .join(format!("COMMIT_EDITMSG.fufu-{}", std::process::id()));
+        let path =
+            absolute(repo.git_dir())?.join(format!("COMMIT_EDITMSG.fufu-{}", std::process::id()));
         std::fs::write(&path, message).map_err(Error::repo)?;
         Ok(Self { path })
     }

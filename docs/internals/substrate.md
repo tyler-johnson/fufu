@@ -36,7 +36,7 @@ The index tests compare semantics rather than serialized bytes: after fufu write
 
 ## Behavioral compatibility
 
-`crates/ff-core/src/hooks.rs` resolves hooks through `core.hooksPath` (otherwise `<common-dir>/hooks`), runs them from the worktree root, and sets `GIT_EDITOR=:`. Missing hooks are skipped; Unix also requires the executable bit. Message hooks receive a temporary `COMMIT_EDITMSG.fufu-<pid>` path, not Git's fixed message filename.
+`crates/ff-core/src/hooks.rs` resolves hooks through `core.hooksPath` (otherwise `<common-dir>/hooks`), runs them from the worktree root with absolute `GIT_DIR` and `GIT_WORK_TREE`, and sets `GIT_EDITOR=:`. Missing hooks are skipped; Unix also requires the executable bit. Message hooks receive a temporary `COMMIT_EDITMSG.fufu-<pid>` path, not Git's fixed message filename.
 
 The [FAQ hook table](../faq.md#does-fufu-run-my-git-hooks) owns the per-command and per-mode rules, including absorb/lift's open versus closed sources, `-m`, and `--no-verify`. A nonzero gate result aborts the operation; `post-commit` is notification-only and does not fail the completed commit.
 

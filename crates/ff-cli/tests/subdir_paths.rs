@@ -10,6 +10,7 @@ use std::process::{Command, Output};
 
 use ff_testsupport::Fixture;
 use ff_testsupport::fixtures::null_device;
+use ff_testsupport::hooks::install_hook;
 
 fn ff_at(dir: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_ff"))
@@ -198,4 +199,31 @@ fn dash_c_reads_the_same_as_standing_there() {
     let v = json_at(&fx.path(), &["-C", "a/b", "--json", "restore", "file.ts"]);
     assert_eq!(v["data"]["restored"], serde_json::json!(["a/b/file.ts"]));
     assert_eq!(read(&fx, "file.ts"), ROOT_EDIT);
+}
+
+/// A hook runs from the worktree root even when `ff` was invoked below it.
+/// The relative `touch` lands in the right `.git` only from the root.
+#[test]
+fn commit_in_a_subdirectory_runs_pre_commit_from_the_root() {
+    let (fx, sub) = repo();
+    install_hook(
+        &fx,
+        "pre-commit",
+        "#!/bin/sh\ngit ls-files --error-unmatch a/b/file.ts >/dev/null || exit 1\ntouch .git/hook-ran\n",
+    );
+    ok_at(&sub, &["commit", "-m", "x"]);
+    assert!(fx.path().join(".git/hook-ran").exists());
+}
+
+#[test]
+fn commit_in_a_subdirectory_hands_commit_msg_a_path_that_resolves() {
+    let (fx, sub) = repo();
+    install_hook(
+        &fx,
+        "commit-msg",
+        "#!/bin/sh\nprintf 'hooked\\n' >> \"$1\"\n",
+    );
+    ok_at(&sub, &["commit", "-m", "x"]);
+    let message = fx.git(&["log", "-1", "--format=%B"]);
+    assert!(message.contains("hooked"), "{message}");
 }

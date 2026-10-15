@@ -177,3 +177,14 @@ fn a_dash_m_mints_quietly() {
         "{payload}"
     );
 }
+
+/// A hook that changes directory, as lefthook does for a job with `root:`,
+/// still finds the repository through `GIT_DIR` and `GIT_WORK_TREE`.
+#[test]
+fn a_hook_that_changes_directory_still_reaches_the_repository() {
+    let fx = repo();
+    fx.write("sub/x.txt", "x\n");
+    fx.write("a.txt", "edited\n");
+    install_hook(&fx, "pre-commit", "#!/bin/sh\ncd sub && git add ../a.txt\n");
+    ok(ff(&fx, &["commit", "-m", "x"]));
+}
