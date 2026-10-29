@@ -136,6 +136,7 @@ jobs:
           - { client: claude, package: "@anthropic-ai/claude-code@2.1.270" }
           - { client: qwen, package: "@qwen-code/qwen-code@0.23.3" }
           - { client: opencode, package: "opencode-ai@1.18.30" }
+          - { client: opencode2, package: "@opencode/cli@2.2.2" }
           - { client: copilot, package: "@github/copilot@1.0.83" }
           - { client: cursor, version: "2026.09.10-fd3934a" }
     name: live (${{ matrix.client }})

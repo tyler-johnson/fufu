@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- [`ff hook opencode`](docs/reference/hooks/opencode.md)'s plugin failed to load on OpenCode 2.x ("Plugin must export a default definition with an id and an effect or setup function"). It now default-exports one definition that 2.x and 1.x (1.18.29 and newer) both load. An installed plugin reads as stale until `ff hook -u` or `ff doctor --fix` rewrites it.
+
+### Known issues
+
+- Under OpenCode 2.x, shell commands carry no `OPENCODE_SESSION_ID`, because 2.x's shell hook has no session id, so fufu operations run from the shell are not tagged with the OpenCode session. Hook captures are tagged.
+
 ## v0.19.2 — 2026-10-15
 
 ### Fixed

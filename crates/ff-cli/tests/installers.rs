@@ -1288,12 +1288,12 @@ fn the_opencode_plugin_round_trips() {
         "the binary's path as a JS string literal: {body}"
     );
     for needle in [
-        "trigger opencode",
+        "\"trigger\", \"opencode\"",
         "OPENCODE_SESSION_ID",
         "\"shell.env\"",
         "\"experimental.chat.system.transform\"",
         "\"tool.execute.before\"",
-        "export const FufuPlugin",
+        "export default",
     ] {
         assert!(body.contains(needle), "{needle} in {body}");
     }

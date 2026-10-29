@@ -181,14 +181,17 @@ impl Script {
     }
 
     /// The chat dialect's tool call, naming the tool the request offers:
-    /// `bash` when the body declares one (OpenCode), else Qwen Code's
-    /// `run_shell_command`. The arguments are `{"command": …}` either
-    /// way. Every dialect's call id carries the command's index: a client
-    /// keys tool results by id, and two calls under one id would leave
-    /// one of them out of the next request.
+    /// `bash` when the body declares one (OpenCode 1.x), `shell` when it
+    /// declares that (OpenCode 2.x), else Qwen Code's `run_shell_command`.
+    /// The arguments are `{"command": …}` either way. Every dialect's call
+    /// id carries the command's index: a client keys tool results by id,
+    /// and two calls under one id would leave one of them out of the next
+    /// request.
     fn chat_call(&self, body: &str, n: usize) -> String {
         let name = if body.contains(r#""name":"bash""#) {
             "bash"
+        } else if body.contains(r#""name":"shell""#) {
+            "shell"
         } else {
             "run_shell_command"
         };
@@ -553,8 +556,8 @@ mod tests {
     }
 
     /// The chat call names the tool the request offers: a body
-    /// declaring `bash` gets `bash`, and one declaring
-    /// `run_shell_command` keeps that name.
+    /// declaring `bash` gets `bash`, `shell` gets `shell`, and one
+    /// declaring `run_shell_command` keeps that name.
     #[test]
     fn chat_completions_names_the_tool_the_request_offers() {
         let model = MockModel::start(&["ff op log --json -n 1"], MARKER);
@@ -575,6 +578,12 @@ mod tests {
             r#"{"messages":[],"tools":[{"type":"function","function":{"name":"run_shell_command","parameters":{}}}]}"#,
         );
         assert!(body.contains(r#""name":"run_shell_command""#), "{body}");
+        let (_, _, body) = post(
+            &model,
+            "/v1/chat/completions",
+            r#"{"messages":[],"tools":[{"type":"function","function":{"name":"shell","parameters":{}}}]}"#,
+        );
+        assert!(body.contains(r#""name":"shell""#), "{body}");
     }
 
     #[test]

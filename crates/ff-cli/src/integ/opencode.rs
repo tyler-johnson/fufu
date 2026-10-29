@@ -9,20 +9,26 @@
 //! directory beside it. `opencode.json` is not touched: its `plugin` field
 //! is for npm packages.
 //!
-//! The plugin does three things, on the three hooks it registers.
-//! `tool.execute.before` is the floor: a `PreToolUse` payload carrying the
-//! tool's name and its arguments — OpenCode's `bash` args carry `command`,
-//! so the label is `bash(<cmd>)` and the gitPolicy tally counts it — and
-//! nothing printed, since OpenCode discards the output; no coaching
-//! reaches the model here. `experimental.chat.system.transform` runs on
+//! The body is one default export, `{ id: "fufu", server, setup }`, with
+//! no other export: OpenCode 1.x (1.18.29 and newer) calls `server`, and
+//! 2.x calls `setup`, so one file loads on both. Each half registers the
+//! same two behaviors. `tool.execute.before` (2.x: `execute.before`) is
+//! the floor: a `PreToolUse` payload carrying the tool's name and its
+//! arguments — the shell tool's args carry `command` (`bash` under 1.x,
+//! `shell` under 2.x), so the label is `bash(<cmd>)` or `shell(<cmd>)`
+//! and the gitPolicy tally counts it — and nothing printed,
+//! since OpenCode discards the output; no coaching reaches the model
+//! here. `experimental.chat.system.transform` (2.x: `context`) runs on
 //! every model call and pushes the trigger's stdout onto the system
 //! prompt: its payload spells `SessionStart`, which re-briefs
 //! unconditionally, so under OpenCode the briefing is standing rather
 //! than once per boundary, and survives compaction without a second
 //! event; the capture it takes on an unchanged tree adds nothing.
-//! `shell.env` sets `OPENCODE_SESSION_ID` on every shell command — the
-//! bash tool's and the TUI's `!` shell — so a shell verb under OpenCode
-//! carries the session its hook captures do.
+//! `shell.env`, 1.x only, sets `OPENCODE_SESSION_ID` on every shell
+//! command — the bash tool's and the TUI's `!` shell — so a shell verb
+//! under 1.x carries the session its hook captures do. 2.x's shell hook
+//! carries no session id, so under 2.x a shell verb is untagged. The
+//! trigger runs through `node:child_process`, which both runtimes have.
 //!
 //! Wiring is a byte comparison of one file: equal to what this binary
 //! writes is wired; fufu's header with other bytes — a moved binary, an
@@ -247,8 +253,9 @@ mod tests {
     use crate::integ::Label;
 
     /// One placeholder in the source, none in the body, the binary's path
-    /// as a JSON string literal in its place, the header first, and the
-    /// three hooks, the variable, and both event names spelled.
+    /// as a JSON string literal in its place, the header first, and both
+    /// halves spelled: 1.x's three hooks, 2.x's two, the variable, and both
+    /// event names.
     #[test]
     fn the_body_bakes_the_binary_as_a_string_literal() {
         assert_eq!(PLUGIN.matches("__FF__").count(), 1);
@@ -261,13 +268,21 @@ mod tests {
             "\"shell.env\"",
             "\"experimental.chat.system.transform\"",
             "\"tool.execute.before\"",
+            "\"execute.before\"",
+            "\"context\"",
             "OPENCODE_SESSION_ID",
-            "trigger opencode",
+            "\"trigger\", \"opencode\"",
             "tool_name: input.tool",
             "tool_input: output.args",
+            "tool_name: event.tool",
+            "tool_input: event.input",
+            "id: \"fufu\"",
+            "export default",
         ] {
             assert!(body.contains(needle), "{needle} in {body}");
         }
+        // A named export breaks 1.x's loader.
+        assert!(!body.contains("export const"), "{body}");
         // The two names the plugin's payloads spell: the standing briefing
         // is a boundary on every model call, and every tool call is the
         // floor. The body is the table, so this is what it has to name.
