@@ -1,11 +1,12 @@
 //! `ff resolve` — deal with a held rewrite. It materializes the conflicts
 //! all at once on a session branch, the way `ff edit` opens one, and
 //! switches you there; a held arrival is laid into the open change in
-//! place; with no hold, a branch whose commits hold a merge of its base
-//! takes the base in by a merge; `--abandon` drops the hold instead. A
-//! resolution that opened is a success and exits 0, unless this resolve
-//! recorded the hold itself: the merge door's conflict is a hold like any
-//! verb's, and the shell owes a 3 for it.
+//! place, and a restack held at the open change lands in place; with no
+//! hold, a branch whose commits hold a merge of its base takes the base in
+//! by a merge; `--abandon` drops the hold instead. A resolution that opened
+//! is a success and exits 0, unless this resolve recorded the hold itself:
+//! the merge door's conflict is a hold like any verb's, and the shell owes a
+//! 3 for it.
 
 use ff_core::{ResolveOutcome, ResolveReport, Result};
 
@@ -172,6 +173,46 @@ pub fn run(ctx: &Ctx, abandon: bool) -> Result<()> {
                     )
                 );
             }
+            println!("{}", crate::render::paint_dim("undo: ff undo", colored));
+        }
+        ResolveOutcome::Carried(report) => {
+            if ctx.json {
+                let payload = serde_json::json!({
+                    "resolve": serde_json::Value::Null,
+                    "carried": report,
+                    "undo": "ff undo",
+                });
+                crate::machine::emit("resolve", &payload)?;
+                return Ok(());
+            }
+            let colored = crate::pager::color_enabled();
+            super::restack::render_moved(&report.restack, colored);
+            if !report.paths.is_empty() {
+                println!(
+                    "your open change carries conflict markers in {} file{}:",
+                    report.paths.len(),
+                    if report.paths.len() == 1 { "" } else { "s" }
+                );
+                for path in &report.paths {
+                    println!(
+                        "{}",
+                        crate::render::paint_warn(&format!("  {path}"), colored)
+                    );
+                }
+                println!(
+                    "    {}",
+                    crate::render::paint_dim(
+                        "fix the markers; the open change is the resolution",
+                        colored
+                    )
+                );
+            } else if report.restack.still_open {
+                println!(
+                    "your open change applies cleanly on {}",
+                    report.restack.base
+                );
+            }
+            super::restack::render_disclosed(&report.restack, colored);
             println!("{}", crate::render::paint_dim("undo: ff undo", colored));
         }
         ResolveOutcome::Abandoned(report) => {

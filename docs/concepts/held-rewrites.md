@@ -18,9 +18,9 @@ ff resolve
 ff done
 ```
 
-You do not need to stage the fixes. If another branch is held, first use [`ff switch`](../reference/cli/switch.md) to select it. A parked change that conflicts when you switch back is a [distinct case](#parked-change-arrival), resolved in place.
+You do not need to stage the fixes. If another branch is held, first use [`ff switch`](../reference/cli/switch.md) to select it. Two cases resolve in place, with no session: a parked change that conflicts when you switch back is a [held arrival](#parked-change-arrival), and a restack that conflicts only with your uncommitted work is an [open-change conflict](#open-change-conflict).
 
-To open the session immediately, add `--resolve` to [`ff restack`](../reference/cli/restack.md), [`ff pull`](../reference/cli/pull.md), or [`ff merge`](../reference/cli/merge.md). The command records the hold and opens the current branch's session in one run. Use `ff config onConflict resolve` to make this the default, or `--no-resolve` to stop at the hold for one run.
+To open the session immediately, add `--resolve` to [`ff restack`](../reference/cli/restack.md), [`ff pull`](../reference/cli/pull.md), or [`ff merge`](../reference/cli/merge.md). The command records the hold and opens the current branch's session in one run. An open-change conflict stays held instead, for `ff resolve` to land. Use `ff config onConflict resolve` to make this the default, or `--no-resolve` to stop at the hold for one run.
 
 ### The session
 
@@ -52,6 +52,16 @@ Here `ff resolve` lays the parked change into the current working copy with mark
 
 If the branch already has another open change, resolve refuses to overwrite it. Commit that work before retrying; switching away only parks it on the same branch, so returning resumes the blocker. `ff resolve --abandon` drops a still-held arrival and reports the saved parked commit; it does not apply that work.
 
+## Open-change conflict
+
+A restack holds at the open change when the branch's commits replay cleanly and only your uncommitted work conflicts. A branch with no commits of its own, which only has to fast-forward, is the plainest example.
+
+Here `ff resolve` lands the restack in place: it moves the branch, replays any commits, and lays the open change over the new tip with markers, in one operation. The conflict belongs to no commit, so there is no session and no `ff done`. Edit the markers, and the result is your open change, still uncommitted. If the change no longer conflicts, it lands clean. One `ff undo` restores the tip, the original change, and the hold.
+
+The `--resolve` flag leaves this hold standing, since there is no session to open. Commit the change before resolving and it becomes a conflict in a commit, which opens a session as usual.
+
+A conflict that takes no text markers, such as a binary file or a modify/delete, gets none here. The report names the file, but it can hold the new tip's version, with yours gone from the working copy. One `ff undo` brings it back.
+
 <a id="deferred-requires-loud"></a>
 
 ## Reading conflict reports
@@ -72,7 +82,7 @@ A hold saves the requested rewrite's intent: its branch and target. Resolution r
 
 A held restack requests a replay onto a target branch. A held merge requests a merge commit: it can come from `ff merge <branch>`, or from `ff resolve` taking the base into a branch whose [`fufu.pull`](../reference/config.md#common-settings) policy resolves to `merge`, or to `auto` with a merge among its commits. Absorb, lift, done, and parked-change arrivals can also record holds, carrying work still waiting to be applied.
 
-If a held replay now applies cleanly, `ff resolve` releases the hold and tells you to rerun the original command. A held merge that is now clean lands directly; if its target is already included, resolve releases the hold. A target that disappeared or no longer belongs to the required history can make the hold expire instead.
+If a replay held at a commit now applies cleanly, `ff resolve` releases the hold and tells you to rerun the original command. A replay held at the open change lands instead. A held merge that is now clean lands directly; if its target is already included, resolve releases the hold. A target that disappeared or no longer belongs to the required history can make the hold expire instead.
 
 ## What a rewrite does to a standing hold
 

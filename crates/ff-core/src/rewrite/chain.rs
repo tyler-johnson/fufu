@@ -956,7 +956,7 @@ fn line_hunks(before: &str, after: &str) -> Vec<(std::ops::Range<usize>, std::op
 /// labels, and the unresolved regions are the step's paths. `verb` is the
 /// closer's word: `rebasing` for a replayed step, `merging` for a merge.
 #[allow(clippy::too_many_arguments)]
-fn merged(
+pub(crate) fn merged(
     repo: &gix::Repository,
     base: gix::ObjectId,
     ours: gix::ObjectId,

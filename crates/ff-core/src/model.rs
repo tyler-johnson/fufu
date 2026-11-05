@@ -810,6 +810,19 @@ pub enum ResolveOutcome {
     /// open change with markers — or the change applied cleanly now and is
     /// simply open again.
     Laid(LaidReport),
+    /// A restack held at the open change landed in place: the branch moved
+    /// and the open change is over its new tip, with markers where it still
+    /// conflicts.
+    Carried(CarriedReport),
+}
+
+/// A restack held at the open change, landed by `ff resolve`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CarriedReport {
+    pub restack: RestackReport,
+    /// Files carrying conflict markers, sorted; empty when the open change
+    /// applied cleanly.
+    pub paths: Vec<String>,
 }
 
 /// A held arrival laid into the open change.

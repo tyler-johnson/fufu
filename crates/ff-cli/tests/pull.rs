@@ -1,8 +1,8 @@
 //! `ff pull` and `ff push`, end to end against the real `ff` binary.
-//! Every test is offline: all but one run `--no-fetch` on a repository with
-//! no remote, and the one that really fetches
-//! ([`a_half_removed_worktree_admin_dir_does_not_stop_the_fetch`]) aims at a
-//! bare remote on the filesystem beside it. Nothing here reaches the
+//! Every test is offline: most run `--no-fetch` on a repository with no
+//! remote, and those that really fetch
+//! ([`a_half_removed_worktree_admin_dir_does_not_stop_the_fetch`] among them)
+//! aim at a bare remote on the filesystem beside it. Nothing here reaches the
 //! network. Covers the base-axis replay, the JSON envelopes, the
 //! nothing-to-pull state, the three scopes — bare, names, `--all` — and a
 //! push with nowhere to send.
@@ -2168,4 +2168,210 @@ fn a_dry_run_reports_the_merge_skip_and_writes_nothing() {
     );
     assert_eq!(op_count(&fx), ops, "nothing recorded");
     assert_eq!(tips(&fx, &["side", "main"]), before, "nothing moved");
+}
+
+// ---- A restack held at the open change ----
+
+/// A second clone of `fx`'s remote, whose identity git needs to commit.
+fn second_clone(fx: &Fixture) -> std::path::PathBuf {
+    let other = fx.root().join("other");
+    fx.git_in(
+        fx.root(),
+        &[
+            "clone",
+            "-q",
+            &fx.remote_path().to_string_lossy(),
+            &other.to_string_lossy(),
+        ],
+    );
+    other
+}
+
+/// Issue #20's repro: `feature` has no commits of its own, its uncommitted
+/// edit conflicts with work pushed to trunk, and nothing has been fetched.
+fn open_change_behind_the_remote() -> Fixture {
+    let fx = Fixture::new_cloned();
+    fx.write("f.txt", "a\nb\nc\n");
+    fx.commit("base");
+    fx.git(&["push", "-q", "-u", "origin", "main"]);
+    let other = second_clone(&fx);
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("f.txt", "a\nMINE\nc\n");
+    std::fs::write(other.join("f.txt"), "a\nTHEIRS\nc\n").unwrap();
+    fx.git_in(&other, &["commit", "-q", "-am", "upstream"]);
+    fx.git_in(&other, &["push", "-q", "origin", "main"]);
+    fx
+}
+
+fn assert_marked(fx: &Fixture) {
+    let text = std::fs::read_to_string(fx.path().join("f.txt")).unwrap();
+    assert!(text.contains("<<<<<<< the rewrite so far (1/1)"), "{text}");
+    assert!(text.contains("THEIRS\n=======\nMINE\n"), "{text}");
+}
+
+#[test]
+fn resolve_lands_a_pulls_hold_at_the_open_change() {
+    let fx = open_change_behind_the_remote();
+
+    let pulled = ff(&fx, &["pull"]);
+    assert_eq!(pulled.status.code(), Some(3), "{}", out(&pulled));
+    assert!(out(&ff(&fx, &["status"])).contains("held:"));
+
+    let resolved = ff(&fx, &["resolve", "--json"]);
+    assert!(resolved.status.success(), "{}", out(&resolved));
+    let payload = json(&resolved);
+    let data = &payload["data"];
+    assert!(data["resolve"].is_null(), "{payload}");
+    assert_eq!(data["undo"], "ff undo", "{payload}");
+    assert_eq!(data["carried"]["paths"][0], "f.txt", "{payload}");
+    assert_eq!(data["carried"]["restack"]["fast_forward"], true);
+
+    assert_eq!(
+        fx.git(&["rev-parse", "feature"]),
+        fx.git(&["rev-parse", "origin/main"])
+    );
+    assert_marked(&fx);
+    let status = out(&ff(&fx, &["status"]));
+    assert!(!status.contains("held:"), "{status}");
+
+    // The hold was what blocked the exit.
+    let pushed = ff(&fx, &["push"]);
+    assert!(pushed.status.success(), "{}", out(&pushed));
+    assert_eq!(
+        fx.remote_git(&["rev-parse", "refs/heads/feature"]),
+        fx.git(&["rev-parse", "feature"])
+    );
+
+    let undone = ff(&fx, &["undo"]);
+    assert!(undone.status.success(), "{}", out(&undone));
+}
+
+#[test]
+fn resolve_says_what_it_did_with_the_open_change() {
+    let fx = open_change_behind_the_remote();
+    assert_eq!(ff(&fx, &["pull"]).status.code(), Some(3));
+
+    let resolved = ff(&fx, &["resolve"]);
+
+    assert!(resolved.status.success(), "{}", out(&resolved));
+    let text = stdout(&resolved);
+    assert!(
+        text.contains("fast-forwarded feature to main — nothing to replay"),
+        "{text}"
+    );
+    assert!(
+        text.contains("your open change carries conflict markers in 1 file:\n  f.txt\n"),
+        "{text}"
+    );
+    assert!(text.contains("the open change is the resolution"), "{text}");
+    assert!(text.contains("undo: ff undo"), "{text}");
+}
+
+/// `feature` is behind its own shared copy, which is no base to re-aim at:
+/// the landing goes there without the refusal a person's aim gets, and
+/// records nothing.
+#[test]
+fn resolve_lands_a_hold_on_the_branchs_own_shared_copy() {
+    let fx = Fixture::new_cloned();
+    fx.write("f.txt", "a\nb\nc\n");
+    fx.commit("base");
+    fx.git(&["push", "-q", "-u", "origin", "main"]);
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("own.txt", "own\n");
+    fx.commit("f1");
+    fx.git(&["push", "-q", "-u", "origin", "feature"]);
+    let other = second_clone(&fx);
+    fx.git_in(&other, &["switch", "-q", "feature"]);
+    std::fs::write(other.join("f.txt"), "a\nTHEIRS\nc\n").unwrap();
+    fx.git_in(&other, &["commit", "-q", "-am", "theirs"]);
+    fx.git_in(&other, &["push", "-q", "origin", "feature"]);
+    fx.write("f.txt", "a\nMINE\nc\n");
+    let parent = ff_core::branchmeta::read(&fx.repo(), "feature")
+        .unwrap()
+        .parent;
+
+    let pulled = ff(&fx, &["pull"]);
+    assert_eq!(pulled.status.code(), Some(3), "{}", out(&pulled));
+
+    let resolved = ff(&fx, &["resolve", "--json"]);
+    assert!(resolved.status.success(), "{}", out(&resolved));
+    let payload = json(&resolved);
+    assert_eq!(
+        payload["data"]["carried"]["restack"]["reaimed"], false,
+        "{payload}"
+    );
+    assert_eq!(
+        fx.git(&["rev-parse", "feature"]),
+        fx.git(&["rev-parse", "origin/feature"])
+    );
+    assert_marked(&fx);
+    assert_eq!(
+        ff_core::branchmeta::read(&fx.repo(), "feature")
+            .unwrap()
+            .parent,
+        parent
+    );
+}
+
+#[test]
+fn pull_resolve_leaves_a_hold_at_the_open_change_standing() {
+    let fx = open_change_behind_the_remote();
+
+    let pulled = ff(&fx, &["pull", "--resolve"]);
+
+    assert_eq!(pulled.status.code(), Some(3), "{}", out(&pulled));
+    let text = stdout(&pulled);
+    assert!(
+        text.contains("your open change conflicts in f.txt"),
+        "{text}"
+    );
+    assert!(!text.contains("resolving"), "no session opened: {text}");
+    assert_eq!(
+        fx.git(&["symbolic-ref", "--short", "HEAD"]).trim(),
+        "feature"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("f.txt")).unwrap(),
+        "a\nMINE\nc\n",
+        "the working copy is untouched"
+    );
+
+    let resolved = ff(&fx, &["resolve"]);
+    assert!(resolved.status.success(), "{}", out(&resolved));
+    assert_marked(&fx);
+}
+
+#[test]
+fn restack_resolve_leaves_a_hold_at_the_open_change_standing() {
+    let fx = Fixture::new();
+    fx.write("f.txt", "a\nb\nc\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("f.txt", "a\nTHEIRS\nc\n");
+    fx.commit("theirs");
+    fx.git(&["switch", "-q", "feature"]);
+    fx.write("f.txt", "a\nMINE\nc\n");
+
+    let restacked = ff(&fx, &["restack", "--resolve"]);
+
+    assert_eq!(restacked.status.code(), Some(3), "{}", out(&restacked));
+    let text = stdout(&restacked);
+    assert!(
+        text.contains("your open change conflicts in f.txt"),
+        "{text}"
+    );
+    assert!(!text.contains("resolving"), "no session opened: {text}");
+    assert_eq!(
+        fx.git(&["symbolic-ref", "--short", "HEAD"]).trim(),
+        "feature"
+    );
+
+    let resolved = ff(&fx, &["resolve"]);
+    assert!(resolved.status.success(), "{}", out(&resolved));
+    assert_marked(&fx);
+    assert_eq!(
+        fx.git(&["rev-parse", "feature"]),
+        fx.git(&["rev-parse", "main"])
+    );
 }

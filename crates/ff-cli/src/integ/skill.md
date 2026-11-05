@@ -85,13 +85,13 @@ Dependent branches replay parent before child in the same undoable operation. A 
 
 A **held rewrite** is a replay or merge waiting on conflicting changes. Status reports it; push blocks that branch. Switch to reach a hold elsewhere.
 
-- `ff resolve` opens a session with markers; the hold and prior work stay on the original branch. Fix markers and run `ff done`. Repeat on the same session if another round appears: earlier fixes are kept, exit 3. The final round lands and returns. Switching parks/resumes fixes.
-- A now-clean held replay is released; rerun the original command. A now-clean held merge lands directly.
-- `--resolve` on restack, pull, and merge opens the current branch's session immediately on conflict. `ff config onConflict resolve` makes this the default; `--no-resolve` overrides it.
+- `ff resolve` opens a session with markers; the hold and prior work stay on the original branch. Fix markers and run `ff done`. Repeat if another round appears: earlier fixes are kept, exit 3. The final round lands and returns. Switching parks/resumes fixes.
+- A now-clean replay held at a commit is released; rerun the original command. A now-clean held merge lands directly.
+- `--resolve` on restack, pull, and merge opens the current branch's session on conflict, unless only open work conflicts. `ff config onConflict resolve` makes this the default; `--no-resolve` overrides it.
 - `ff done --abandon` closes the session and keeps the hold; resolve can reopen it.
-- `ff resolve --abandon` removes the hold and any open resolution session, returning from that session if needed.
+- `ff resolve --abandon` removes the hold and any open session, returning from it if needed.
 - Opening takes two undos: return, then remove the session. Landing, abandoning, or advancing a round takes one. Pull with --resolve takes three: switch, session, pull.
-- A held **parked-change arrival** means switch could not replay parked work onto a moved tip. Resolve puts markers into the open change in place and removes the hold, in one operation. It refuses existing open work. Fix files and continue; there is no session or done step.
+- Two holds resolve in place, with no session or done: a **parked-change arrival** (switch could not replay parked work onto a moved tip; refuses open work) and a restack held at **the open change** (only uncommitted work conflicts; the branch moves). Markers land in the open change; fix and continue.
 
 Held restacks/merges follow clean rewrites, are dropped by re-aiming or folding the source, and cleared by replay onto their target. Other holds and open sessions block rewrites. There is no Git rebase to continue.
 

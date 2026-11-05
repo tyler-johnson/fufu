@@ -433,6 +433,7 @@ fn finish_resolution(
             resolve: Some(resolve.clone()),
             return_trip: Some(return_trip),
         }),
+        mark_open: false,
     };
     let Landed {
         replayed,

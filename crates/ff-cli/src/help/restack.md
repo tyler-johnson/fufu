@@ -22,7 +22,7 @@ Replay is local. The CLI can auto-fetch first and run maintenance afterward. `--
 
 A conflicting replay leaves that branch's tip and files unchanged and records a held rewrite. Captures, metadata, and successful replays elsewhere may still be written. Run `ff resolve`, fix the marked files, then run `ff done`. Repeat done if it shows another round of conflicts.
 
-`--resolve` opens the current branch's resolution session in the same run, still with exit 3. A named other branch or a downstream branch stays held without opening a session. Use `ff config onConflict resolve` to make this the default, or `--no-resolve` to stop at the hold for one run.
+`--resolve` opens the current branch's resolution session in the same run, still with exit 3. A named other branch or a downstream branch stays held without opening a session, and so does a conflict in the open change, which `ff resolve` lands in place with no session. Use `ff config onConflict resolve` to make this the default, or `--no-resolve` to stop at the hold for one run.
 
 `ff done --abandon` closes the session and keeps the hold; `ff resolve --abandon` drops both. To undo the opening, one `ff undo` returns to the original branch; another removes the session and restores the hold's previous state.
 

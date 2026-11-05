@@ -164,6 +164,9 @@ pub struct Clearing {
 pub struct Decided {
     pub trees: HashMap<gix::ObjectId, gix::ObjectId>,
     pub clearing: Option<Clearing>,
+    /// A conflicting open change is carried with markers rather than held.
+    /// The commits are still probed: `is_empty` looks only at `trees`.
+    pub mark_open: bool,
 }
 
 impl Decided {

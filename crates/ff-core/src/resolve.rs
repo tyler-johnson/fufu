@@ -15,11 +15,16 @@
 //! returns in one. Two ways out: `ff done --abandon` closes the session and
 //! leaves the hold standing, so `ff resolve` can open it again; `ff resolve
 //! --abandon`, from either branch, drops the hold and the session with it.
+//!
+//! A held arrival and a restack held at the open change open no session: no
+//! closed commit owns their conflict, so they land in the working copy.
 
 use crate::error::{Error, Result};
+use crate::futures::At;
 use crate::held::{self, verb_of};
 use crate::model::{
-    AbandonedHold, HeadState, HeldReport, LaidReport, ReleasedReport, ResolveOutcome, ResolveReport,
+    AbandonedHold, CarriedReport, HeadState, HeldReport, LaidReport, ReleasedReport,
+    ResolveOutcome, ResolveReport, RestackOutcome,
 };
 use crate::ops::record::{
     ChangeIdTransition, DescriptionTransition, HeldTransition, ResolveTransition,
@@ -247,6 +252,17 @@ pub fn resolve(
         );
     }
 
+    // A restack held at the open change: the commits are fine, and a session
+    // has no commit to attribute this conflict to. It lands here with markers
+    // in the working copy. A restack that can't move any more, or whose
+    // commits conflict now, falls through to the ordinary replan.
+    if let (held::Intent::Restack { onto, .. }, At::OpenChange) = (&held.intent, &held.at)
+        && crate::restack::open_change_only(repo, &branch, onto)?
+    {
+        let onto = onto.clone();
+        return land_open_change(repo, ctx, (prov, argv, now), branch, tip, held, onto);
+    }
+
     // Ask again against the repository as it stands. A `held/expired` passes
     // straight through — the hold has outlived its meaning, and saying so is
     // the answer.
@@ -331,6 +347,59 @@ pub fn resolve(
         },
     )?;
     Ok((ResolveOutcome::Opened(report), ctx))
+}
+
+/// Land a restack held at the open change: move the branch and lay the open
+/// change over its new tip, in the restack's one operation, which also clears
+/// the hold. A hold aimed at the branch's standing base is a plain restack,
+/// and only one aimed elsewhere re-aims it.
+fn land_open_change(
+    repo: &gix::Repository,
+    ctx: verb::VerbContext,
+    invocation: (&Provenance, Vec<String>, i64),
+    branch: String,
+    tip: gix::ObjectId,
+    held: held::Held,
+    onto: String,
+) -> Result<(ResolveOutcome, verb::VerbContext)> {
+    let (prov, argv, now) = invocation;
+    let tip_tree = tree_of(repo, tip)?;
+    let open = open_tree(repo, tip_tree)?;
+    let standing = crate::futures::base_for(repo, &branch)?.is_some_and(|base| base.r#ref == onto);
+    let decided = crate::rewrite::Decided {
+        clearing: Some(crate::rewrite::Clearing {
+            branch: branch.clone(),
+            held: Some(held),
+            resolve: None,
+            return_trip: None,
+        }),
+        mark_open: true,
+        ..Default::default()
+    };
+    let (outcome, _opened, _ctx, _arrival) = crate::restack::restack_landing(
+        repo,
+        Some(branch),
+        (!standing).then_some(onto),
+        prov,
+        (Some(now), argv),
+        &decided,
+        crate::restack::Aim::Settled,
+        held::OnConflict::Hold,
+    )?;
+    let RestackOutcome::Restacked(restack) = outcome else {
+        return Err(Error::msg(format!(
+            "internal: the open change's restack did not land: {outcome:?}"
+        )));
+    };
+    let new_tip = gix::ObjectId::from_hex(restack.new_tip.as_bytes()).map_err(Error::repo)?;
+    let paths = crate::futures::conflict_paths(repo, tip_tree, tree_of(repo, new_tip)?, open)?;
+    Ok((
+        ResolveOutcome::Carried(CarriedReport {
+            restack: *restack,
+            paths,
+        }),
+        ctx,
+    ))
 }
 
 /// The refusal with nothing held: `held/none`, with `why` completing

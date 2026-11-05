@@ -85,7 +85,7 @@ A deleted remote copy is reported while its local branch remains. With `fufu.pru
 
 A conflicting replay holds that branch without landing its new tip or files. The run continues with other branches; dependents of the held branch stay put. Captures and hold metadata may still be written. Switch to the named branch and run [`ff resolve`](resolve.md) to continue. The exit is 3 if any branch holds.
 
-`--resolve` opens the current branch's resolution session in the same run, still with exit 3. Fix the marked files and run [`ff done`](done.md); repeat if another round appears. Other branches stay held without opening a session, and a dry run opens none. Use `ff config onConflict resolve` to make this the default, or `--no-resolve` to stop at the hold for one run.
+`--resolve` opens the current branch's resolution session in the same run, still with exit 3. Fix the marked files and run [`ff done`](done.md); repeat if another round appears. Other branches stay held without opening a session, and a dry run opens none. A conflict in the open change also stays held: `ff resolve` lands it in place with no session. Use `ff config onConflict resolve` to make this the default, or `--no-resolve` to stop at the hold for one run.
 
 `ff done --abandon` closes the session and keeps the hold; `ff resolve --abandon` drops both. Opening during pull adds two operations after the pull's own operation. Three [`ff undo`](undo.md) calls reverse the switch, the session creation, then the pull.
 

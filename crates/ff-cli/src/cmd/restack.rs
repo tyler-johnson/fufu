@@ -6,9 +6,112 @@
 //! `--resolve` and `fufu.onConflict resolve` holds and opens the resolution
 //! session in the same run.
 
-use ff_core::{RestackOutcome, Result};
+use ff_core::{RestackOutcome, RestackReport, Result};
 
 use crate::ctx::Ctx;
+
+/// What moved, in the verb's words: the aim, the replay or fast-forward, and
+/// what it dropped or flattened. Shared with `ff resolve`, whose landing of a
+/// hold at the open change is this restack.
+pub(crate) fn render_moved(report: &RestackReport, colored: bool) {
+    if report.reaimed {
+        match &report.previous_parent {
+            Some(was) => println!(
+                "re-aimed {} at {} (was {})",
+                report.branch, report.base, was
+            ),
+            None => println!("re-aimed {} at {}", report.branch, report.base),
+        }
+    } else if report.behind > 0 {
+        println!("{} moved ahead by {} commit(s)", report.base, report.behind);
+    }
+    // A dropped hold is a disclosure, not a warning: the re-aim
+    // settled the question the hold was asking.
+    if let Some(dropped) = &report.dropped_hold {
+        println!(
+            "dropped the held {} onto {}: {} now sits on {}",
+            dropped.verb, dropped.onto, report.branch, report.base
+        );
+    }
+    if report.fast_forward {
+        println!(
+            "fast-forwarded {} to {} — nothing to replay",
+            report.branch, report.base
+        );
+    }
+    if report.replayed > 0 {
+        if report.moved.is_empty() {
+            println!(
+                "replayed {} commit(s) onto {}",
+                report.replayed, report.base
+            );
+        } else {
+            println!(
+                "replayed {} commit(s) onto {}; moved {}",
+                report.replayed,
+                report.base,
+                report.moved.join(", ")
+            );
+        }
+    }
+    // Divergence is a warning rather than a disclosure: something the
+    // user did not ask for is now true of a branch they were not
+    // thinking about.
+    if !report.diverged.is_empty() {
+        let sits = if report.diverged.len() == 1 {
+            "sits"
+        } else {
+            "sit"
+        };
+        println!(
+            "{}",
+            crate::render::paint_warn(
+                &format!(
+                    "{} now {sits} on commits this restack replaced",
+                    report.diverged.join(", ")
+                ),
+                colored
+            )
+        );
+    }
+    for line in crate::render::dropped_lines(&report.dropped, None, colored) {
+        println!("{line}");
+    }
+    for line in crate::render::flattened_lines(&report.flattened, colored) {
+        println!("{line}");
+    }
+}
+
+/// What else the move leaves true: a parked change, published commits, and
+/// the branches above. Shared with `ff resolve`, as [`render_moved`] is.
+pub(crate) fn render_disclosed(report: &RestackReport, colored: bool) {
+    if let Some(parked) = &report.parked {
+        if parked.applies {
+            println!("that branch has a parked change — it still applies cleanly");
+        } else {
+            println!(
+                "{}",
+                crate::render::paint_warn(
+                    "that branch has a parked change — it would conflict on arrival",
+                    colored
+                )
+            );
+        }
+    }
+    if report.published > 0 {
+        // Disclosure, not a warning, on the same rule as reword — and
+        // read off the report rather than asked of HEAD, because
+        // restack can name a branch you are not standing on.
+        let upstream_name = report.published_on.as_deref().unwrap_or("the remote");
+        println!(
+            "{} of the rewritten commits are already on {}",
+            report.published, upstream_name
+        );
+    }
+    for line in crate::render::cascade_lines(&report.cascade, colored) {
+        println!("{line}");
+    }
+}
 
 pub fn run(
     ctx: &Ctx,
@@ -48,72 +151,7 @@ pub fn run(
                 return Ok(());
             }
             let colored = crate::pager::color_enabled();
-            if report.reaimed {
-                match &report.previous_parent {
-                    Some(was) => println!(
-                        "re-aimed {} at {} (was {})",
-                        report.branch, report.base, was
-                    ),
-                    None => println!("re-aimed {} at {}", report.branch, report.base),
-                }
-            } else if report.behind > 0 {
-                println!("{} moved ahead by {} commit(s)", report.base, report.behind);
-            }
-            // A dropped hold is a disclosure, not a warning: the re-aim
-            // settled the question the hold was asking.
-            if let Some(dropped) = &report.dropped_hold {
-                println!(
-                    "dropped the held {} onto {}: {} now sits on {}",
-                    dropped.verb, dropped.onto, report.branch, report.base
-                );
-            }
-            if report.fast_forward {
-                println!(
-                    "fast-forwarded {} to {} — nothing to replay",
-                    report.branch, report.base
-                );
-            }
-            if report.replayed > 0 {
-                if report.moved.is_empty() {
-                    println!(
-                        "replayed {} commit(s) onto {}",
-                        report.replayed, report.base
-                    );
-                } else {
-                    println!(
-                        "replayed {} commit(s) onto {}; moved {}",
-                        report.replayed,
-                        report.base,
-                        report.moved.join(", ")
-                    );
-                }
-            }
-            // Divergence is a warning rather than a disclosure: something the
-            // user did not ask for is now true of a branch they were not
-            // thinking about.
-            if !report.diverged.is_empty() {
-                let sits = if report.diverged.len() == 1 {
-                    "sits"
-                } else {
-                    "sit"
-                };
-                println!(
-                    "{}",
-                    crate::render::paint_warn(
-                        &format!(
-                            "{} now {sits} on commits this restack replaced",
-                            report.diverged.join(", ")
-                        ),
-                        colored
-                    )
-                );
-            }
-            for line in crate::render::dropped_lines(&report.dropped, None, colored) {
-                println!("{line}");
-            }
-            for line in crate::render::flattened_lines(&report.flattened, colored) {
-                println!("{line}");
-            }
+            render_moved(&report, colored);
             if report.files > 0 {
                 if report.still_open {
                     println!(
@@ -124,32 +162,7 @@ pub fn run(
                     println!("updated the working copy ({} file(s))", report.files);
                 }
             }
-            if let Some(parked) = &report.parked {
-                if parked.applies {
-                    println!("that branch has a parked change — it still applies cleanly");
-                } else {
-                    println!(
-                        "{}",
-                        crate::render::paint_warn(
-                            "that branch has a parked change — it would conflict on arrival",
-                            colored
-                        )
-                    );
-                }
-            }
-            if report.published > 0 {
-                // Disclosure, not a warning, on the same rule as reword — and
-                // read off the report rather than asked of HEAD, because
-                // restack can name a branch you are not standing on.
-                let upstream_name = report.published_on.as_deref().unwrap_or("the remote");
-                println!(
-                    "{} of the rewritten commits are already on {}",
-                    report.published, upstream_name
-                );
-            }
-            for line in crate::render::cascade_lines(&report.cascade, colored) {
-                println!("{line}");
-            }
+            render_disclosed(&report, colored);
             println!("{}", crate::render::paint_dim("undo: ff undo", colored));
             if held_above {
                 crate::exit::held();

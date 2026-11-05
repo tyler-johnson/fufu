@@ -17,7 +17,7 @@ A resolution session is an automatically named branch containing the conflict ma
 
 The working copy is the rewrite's final tree, later replayed commits included. Each fix inside a marker block goes to the commit its label names. An edit outside every marker block lands in the last replayed commit, and `ff done` names that commit.
 
-If a held replay now applies cleanly, resolve releases the hold instead. Re-run the original command to apply that replay. A held merge is different: resolve lands it directly when it is clean, or releases the hold if the target is already included.
+If a replay held at a commit now applies cleanly, resolve releases the hold instead. Re-run the original command to apply that replay. A held merge is different: resolve lands it directly when it is clean, or releases the hold if the target is already included.
 
 ### Taking the base in
 
@@ -25,13 +25,19 @@ An existing hold takes priority. Without a hold, resolve merges base updates onl
 
 The new commit has the branch's tip first and the base's tip second, your author identity, a change ID, and a signature when `commit.gpgsign` is enabled. Its subject is `merge <base> into <branch>`. Existing commits are preserved and open work is reapplied over the merge. One `ff undo` removes it. No commit hook runs for this direct merge.
 
-If the merge conflicts, resolve records a hold and opens the resolution session in the same run, with exit 3. Edit the markers and run `ff done`. You can also open sessions immediately with `ff restack --resolve`, `ff pull --resolve`, or `ff merge --resolve`.
+If the merge conflicts, resolve records a hold and opens the resolution session in the same run, with exit 3. Edit the markers and run `ff done`. You can also open sessions immediately with `ff restack --resolve`, `ff pull --resolve`, or `ff merge --resolve`, unless the conflict is in the [open change](#open-change-conflicts).
 
 A later rewrite can drop, clear, or update a held merge, as it can a held restack. See [standing holds](../../concepts/held-rewrites.md#what-a-rewrite-does-to-a-standing-hold).
 
 ### Parked-change arrivals
 
 A held arrival occurs when `ff switch` cannot replay parked work onto a moved branch tip. Resolve handles it in place: the marked files become the open change, with no session and no done step. Fix them and continue ordinary work. Resolution refuses if the branch already has an open change; commit that work first. Switching away only parks it on the same branch, so returning resumes the blocker.
+
+### Open-change conflicts
+
+A restack holds at the open change when the branch's commits replay cleanly and only your uncommitted work conflicts. This includes a branch with no commits of its own that only has to fast-forward. Resolve lands it in place: it moves the branch and lays the open change over the new tip with markers, in one operation, with no session and no done step. Fix the markers and continue ordinary work. If the change no longer conflicts, it lands clean. One `ff undo` restores the tip, the original change, and the hold.
+
+If a commit conflicts by the time you resolve, because the change was committed since the hold, resolve opens a session as usual. A conflict that takes no text markers, such as a binary file or a modify/delete, is named in the report like the others but gets no markers: the file can hold the new tip's version, with yours gone from the working copy. One `ff undo` brings it back.
 
 ### Abandoning and undo
 

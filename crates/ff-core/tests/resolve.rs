@@ -2,7 +2,8 @@
 //! materializes every surviving conflict region into the working tree at once,
 //! as labeled markers, in one session; releases the hold when the world moved
 //! out of the conflict; and, under `--abandon`, drops the hold and the session
-//! together. Opening is a success, so no outcome here moves a branch ref.
+//! together. Opening is a success, so no outcome here moves a branch ref, except
+//! a restack held at the open change, which lands in place.
 
 use ff_core::gix;
 use ff_core::{Provenance, ResolveOutcome};
@@ -604,4 +605,371 @@ fn a_tangled_chain_resolves_what_it_can() {
         on_disk.contains("<<<<<<< the rewrite so far"),
         "the first conflict's opener is present: {on_disk}"
     );
+}
+
+// ---- A restack held at the open change: landed in place, no session ----
+
+/// `feature` has no commits of its own, and its uncommitted edit conflicts
+/// with main's new work. Leaves the fixture standing on `feature`.
+fn open_change_behind(fx: &Fixture) {
+    fx.write("f.txt", "one\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("f.txt", "three\n");
+    fx.commit("m1");
+    fx.git(&["switch", "-q", "feature"]);
+    fx.write("f.txt", "mine\n");
+}
+
+/// `open_change_behind`, with one commit of the branch's own that replays
+/// cleanly.
+fn open_change_over_a_commit(fx: &Fixture) {
+    fx.write("f.txt", "one\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("own.txt", "own\n");
+    fx.commit("f1");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("f.txt", "three\n");
+    fx.commit("m1");
+    fx.git(&["switch", "-q", "feature"]);
+    fx.write("f.txt", "mine\n");
+}
+
+fn rev(fx: &Fixture, name: &str) -> String {
+    fx.git(&["rev-parse", name]).trim().to_string()
+}
+
+fn read(fx: &Fixture, path: &str) -> String {
+    std::fs::read_to_string(fx.path().join(path)).unwrap()
+}
+
+/// Both sides of `f.txt`'s conflict stand in one labeled marker block.
+fn assert_marked(fx: &Fixture) {
+    let text = read(fx, "f.txt");
+    assert!(text.contains("<<<<<<< the rewrite so far (1/1)"), "{text}");
+    assert!(text.contains("three\n=======\nmine\n"), "{text}");
+    assert!(
+        text.contains(">>>>>>> rebasing \"your open change\" (1/1)"),
+        "{text}"
+    );
+}
+
+fn carried(outcome: ResolveOutcome) -> ff_core::CarriedReport {
+    match outcome {
+        ResolveOutcome::Carried(report) => report,
+        other => panic!("expected the landing in place, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_fast_forward_held_at_the_open_change_lands_with_markers() {
+    let fx = Fixture::new();
+    ident(&fx);
+    open_change_behind(&fx);
+    hold_a_restack(&fx);
+    let ops = verb_ops(&fx);
+
+    let (outcome, _ctx) = resolve_call(&fx, false, NOW + 100);
+    let report = carried(outcome);
+
+    assert_eq!(report.paths, vec!["f.txt".to_string()]);
+    assert!(report.restack.fast_forward);
+    assert!(report.restack.still_open);
+    assert_eq!(report.restack.new_tip, rev(&fx, "main"));
+    assert_eq!(rev(&fx, "feature"), rev(&fx, "main"), "the branch moved");
+    assert_marked(&fx);
+
+    assert_eq!(ff_core::held::of(&fx.repo(), "feature").unwrap(), None);
+    assert_eq!(
+        ff_core::held::resolving(&fx.repo(), "feature").unwrap(),
+        None
+    );
+    assert_eq!(
+        fx.git(&["symbolic-ref", "--short", "HEAD"]).trim(),
+        "feature",
+        "HEAD stays on the branch"
+    );
+    let names: Vec<String> = head_refs(&fx).into_iter().map(|(name, _)| name).collect();
+    assert_eq!(
+        names,
+        vec![
+            "refs/heads/feature".to_string(),
+            "refs/heads/main".to_string()
+        ],
+        "no session branch"
+    );
+    assert_eq!(verb_ops(&fx), ops + 1, "one operation");
+    assert_eq!(
+        fx.git(&["status", "--porcelain"]).trim_end(),
+        " M f.txt",
+        "the change is open against the new tip, with nothing staged"
+    );
+}
+
+/// The hold aimed at the base the branch already has, so nothing re-aims it,
+/// though the landing names that base outright.
+#[test]
+fn landing_on_the_standing_base_records_no_parent() {
+    let fx = Fixture::new();
+    ident(&fx);
+    open_change_behind(&fx);
+    hold_a_restack(&fx);
+
+    let (outcome, _ctx) = resolve_call(&fx, false, NOW + 100);
+    let report = carried(outcome);
+
+    assert!(!report.restack.reaimed);
+    assert_eq!(
+        ff_core::branchmeta::read(&fx.repo(), "feature")
+            .unwrap()
+            .parent,
+        None
+    );
+}
+
+/// `ff restack --onto` asked for a new base, and the hold stood in for that
+/// request: landing it records the base it named.
+#[test]
+fn a_held_re_aim_lands_as_a_re_aim() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("f.txt", "one\n");
+    fx.commit("base");
+    fx.git(&["branch", "other"]);
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.git(&["switch", "-q", "other"]);
+    fx.write("f.txt", "three\n");
+    fx.commit("o1");
+    fx.git(&["switch", "-q", "feature"]);
+    fx.write("f.txt", "mine\n");
+    let (outcome, _ctx) = ff_core::restack::restack(
+        &fx.repo(),
+        None,
+        Some("other".into()),
+        &prov(),
+        Some(NOW),
+        vec!["ff".into(), "restack".into()],
+    )
+    .unwrap();
+    assert!(matches!(outcome, ff_core::RestackOutcome::Held(_)));
+
+    let (outcome, _ctx) = resolve_call(&fx, false, NOW + 100);
+    let report = carried(outcome);
+
+    assert!(report.restack.reaimed);
+    assert_eq!(rev(&fx, "feature"), rev(&fx, "other"));
+    assert_eq!(
+        ff_core::branchmeta::read(&fx.repo(), "feature")
+            .unwrap()
+            .parent
+            .as_deref(),
+        Some("other")
+    );
+}
+
+#[test]
+fn commits_replay_under_a_hold_at_the_open_change() {
+    let fx = Fixture::new();
+    ident(&fx);
+    open_change_over_a_commit(&fx);
+    hold_a_restack(&fx);
+    let old_tip = rev(&fx, "feature");
+
+    let (outcome, _ctx) = resolve_call(&fx, false, NOW + 100);
+    let report = carried(outcome);
+
+    assert_eq!(report.paths, vec!["f.txt".to_string()]);
+    assert_eq!(report.restack.replayed, 1);
+    assert!(!report.restack.fast_forward);
+    assert_ne!(rev(&fx, "feature"), old_tip, "the commit was replayed");
+    assert_eq!(rev(&fx, "feature~1"), rev(&fx, "main"));
+    assert_eq!(read(&fx, "own.txt"), "own\n");
+    assert_marked(&fx);
+    assert_eq!(ff_core::held::of(&fx.repo(), "feature").unwrap(), None);
+}
+
+/// The open change was committed after the hold was recorded, so a commit
+/// conflicts now, and a commit is what a session is for.
+#[test]
+fn commits_that_conflict_since_the_hold_open_a_session() {
+    let fx = Fixture::new();
+    ident(&fx);
+    open_change_behind(&fx);
+    hold_a_restack(&fx);
+    fx.commit("the change, committed");
+
+    let (outcome, _ctx) = resolve_call(&fx, false, NOW + 100);
+
+    assert!(
+        matches!(outcome, ResolveOutcome::Opened(_)),
+        "got {outcome:?}"
+    );
+    assert!(
+        ff_core::held::resolving(&fx.repo(), "feature")
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[test]
+fn a_branch_really_on_its_base_is_still_stale() {
+    let fx = Fixture::new();
+    ident(&fx);
+    open_change_behind(&fx);
+    hold_a_restack(&fx);
+    fx.git(&["reset", "-q", "--hard", "main"]);
+
+    let err = ff_core::resolve::resolve(&fx.repo(), false, &prov(), Some(NOW + 100), vec![])
+        .expect_err("the hold has outlived its meaning");
+
+    assert_eq!(err.id(), "held/expired");
+    assert!(err.to_string().contains("already sits on main"), "{err}");
+}
+
+#[test]
+fn a_base_that_is_gone_is_still_stale() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("f.txt", "one\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "other"]);
+    fx.write("f.txt", "three\n");
+    fx.commit("o1");
+    fx.git(&["switch", "-q", "-c", "feature", "main"]);
+    fx.write("f.txt", "mine\n");
+    let (outcome, _ctx) = ff_core::restack::restack(
+        &fx.repo(),
+        None,
+        Some("other".into()),
+        &prov(),
+        Some(NOW),
+        vec!["ff".into(), "restack".into()],
+    )
+    .unwrap();
+    assert!(matches!(outcome, ff_core::RestackOutcome::Held(_)));
+    fx.git(&["branch", "-q", "-D", "other"]);
+
+    let err = ff_core::resolve::resolve(&fx.repo(), false, &prov(), Some(NOW + 100), vec![])
+        .expect_err("the base it aimed at is gone");
+
+    assert_eq!(err.id(), "held/expired");
+}
+
+/// The conflict went away, and the branch still has to move: it lands, with
+/// no re-run of a verb to wait for.
+#[test]
+fn an_open_change_that_stopped_conflicting_lands_clean() {
+    let fx = Fixture::new();
+    ident(&fx);
+    open_change_behind(&fx);
+    hold_a_restack(&fx);
+    fx.write("f.txt", "one\n");
+    fx.write("new.txt", "new\n");
+
+    let (outcome, _ctx) = resolve_call(&fx, false, NOW + 100);
+    let report = carried(outcome);
+
+    assert!(report.paths.is_empty());
+    assert!(report.restack.still_open);
+    assert_eq!(rev(&fx, "feature"), rev(&fx, "main"));
+    assert_eq!(read(&fx, "f.txt"), "three\n");
+    assert_eq!(read(&fx, "new.txt"), "new\n");
+    assert_eq!(ff_core::held::of(&fx.repo(), "feature").unwrap(), None);
+}
+
+#[test]
+fn one_undo_takes_the_landing_back() {
+    let fx = Fixture::new();
+    ident(&fx);
+    open_change_behind(&fx);
+    hold_a_restack(&fx);
+    let tip = rev(&fx, "feature");
+    let held = ff_core::held::of(&fx.repo(), "feature").unwrap();
+    assert!(held.is_some());
+
+    let (outcome, _ctx) = resolve_call(&fx, false, NOW + 100);
+    carried(outcome);
+    let opts = ff_core::RewindOptions {
+        force: false,
+        now: Some(NOW + 200),
+        argv: vec!["ff".into(), "undo".into()],
+    };
+    ff_core::undo(&fx.repo(), &opts, &prov()).unwrap();
+
+    assert_eq!(rev(&fx, "feature"), tip);
+    assert_eq!(read(&fx, "f.txt"), "mine\n");
+    assert_eq!(ff_core::held::of(&fx.repo(), "feature").unwrap(), held);
+}
+
+/// The landing's record names what one undo reads: the hold it cleared.
+#[test]
+fn the_landing_is_a_restack_that_cleared_the_hold() {
+    let fx = Fixture::new();
+    ident(&fx);
+    open_change_behind(&fx);
+    hold_a_restack(&fx);
+    let held = ff_core::held::of(&fx.repo(), "feature").unwrap();
+
+    let (outcome, _ctx) = resolve_call(&fx, false, NOW + 100);
+    carried(outcome);
+
+    let record = tip_record(&fx.repo());
+    assert_eq!(record.verb, "restack");
+    let transition = record.held.expect("the op carries the hold");
+    assert_eq!(transition.old, held);
+    assert_eq!(transition.new, None);
+}
+
+/// A cascade held the branch you stand on: the landing moves that branch and
+/// not the one below, which has already landed.
+#[test]
+fn a_hold_on_a_cascade_child_lands_on_that_branch() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("f.txt", "one\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("a.txt", "a\n");
+    fx.commit("f1");
+    fx.git(&["switch", "-q", "-c", "child"]);
+    fx.write("x.txt", "x\n");
+    fx.commit("x1");
+    {
+        let repo = fx.repo();
+        let mut meta = ff_core::branchmeta::read(&repo, "child").unwrap();
+        meta.parent = Some("feature".into());
+        ff_core::branchmeta::write(&repo, "child", &meta).unwrap();
+    }
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("f.txt", "three\n");
+    fx.commit("m1");
+    fx.git(&["switch", "-q", "child"]);
+    fx.write("f.txt", "mine\n");
+    let (outcome, _ctx) = ff_core::restack::restack(
+        &fx.repo(),
+        Some("feature".into()),
+        None,
+        &prov(),
+        Some(NOW),
+        vec!["ff".into(), "restack".into()],
+    )
+    .unwrap();
+    let ff_core::RestackOutcome::Restacked(landed) = outcome else {
+        panic!("feature lands: {outcome:?}");
+    };
+    assert_eq!(landed.cascade.held.len(), 1, "{:?}", landed.cascade);
+    let feature = rev(&fx, "feature");
+
+    let (outcome, _ctx) = resolve_call(&fx, false, NOW + 100);
+    let report = carried(outcome);
+
+    assert_eq!(report.restack.branch, "child");
+    assert_eq!(report.restack.replayed, 1);
+    assert_eq!(report.paths, vec!["f.txt".to_string()]);
+    assert_eq!(rev(&fx, "feature"), feature, "the branch below stays put");
+    assert_eq!(rev(&fx, "child~1"), feature, "child sits on it now");
+    assert_marked(&fx);
+    assert_eq!(ff_core::held::of(&fx.repo(), "child").unwrap(), None);
 }

@@ -79,6 +79,7 @@
 
 use std::collections::HashSet;
 
+use crate::futures::At;
 use crate::held::OnConflict;
 use crate::model::{
     BaseAxis, BranchPull, BranchRemote, HeadState, HeldReport, KeptBranch, Pending, PrunedBranch,
@@ -545,9 +546,11 @@ pub fn pull(
     // own operation, since that operation also moved other refs, and the
     // session opens over it afterwards — the mint and the switch, so three
     // undos take it all back. Every other branch's hold has no worktree to
-    // open in and is named as before. A dry run recorded nothing.
+    // open in and is named as before, and a hold at the open change has no
+    // commit for a session to attribute a fix to: `ff resolve` lands it in
+    // place. A dry run recorded nothing.
     let opened = match (opts.on_conflict, ctx.as_ref(), underfoot_held) {
-        (OnConflict::Resolve, Some(_), Some(held)) => {
+        (OnConflict::Resolve, Some(_), Some(held)) if !matches!(held.at, At::OpenChange) => {
             let reported = [&remote_held(&remote), &base_held(&base)]
                 .into_iter()
                 .find_map(|r| r.clone());

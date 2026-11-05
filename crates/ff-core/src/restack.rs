@@ -56,6 +56,27 @@ pub(crate) fn merge_into(
         .map_err(Error::repo)
 }
 
+/// The open change merged onto the tip it now sits on, its conflicts written
+/// as markers labeled the way a replayed step's are.
+fn open_with_markers(
+    repo: &gix::Repository,
+    base: gix::ObjectId,
+    ours: gix::ObjectId,
+    open: gix::ObjectId,
+) -> Result<gix::ObjectId> {
+    let (tree, _paths) = rewrite::merged(
+        repo,
+        base,
+        ours,
+        open,
+        rewrite::REBASING,
+        1,
+        1,
+        "your open change",
+    )?;
+    Ok(tree)
+}
+
 /// A restack that conflicts is an outcome, not an error: record the hold as
 /// a slim operation and report it. Nothing moves — no ref, no file, no
 /// futures cache — so the whole path is the operation's append and the
@@ -426,6 +447,33 @@ pub(crate) fn replan_restack(
     })
 }
 
+/// Whether the restack of `branch` onto `onto` has only the open change left
+/// to conflict: the branch can move, and none of its commits stop the replay.
+/// `false` when it has nowhere to move, or `onto` no longer leads anywhere, so
+/// the replan can report that, and when a commit conflicts now.
+pub(crate) fn open_change_only(repo: &gix::Repository, branch: &str, onto: &str) -> Result<bool> {
+    let Some(tip) = refs::ref_target(repo, &format!("refs/heads/{branch}"))? else {
+        return Ok(false);
+    };
+    let Ok(base) = resolve_onto(repo, onto) else {
+        return Ok(false);
+    };
+    let Ok(range) = measure_range(repo, branch, tip, &base) else {
+        return Ok(false);
+    };
+    if range.up_to_date {
+        return Ok(false);
+    }
+    if range.fast_forward {
+        return Ok(true);
+    }
+    let Some(&target) = range.commits.first() else {
+        return Ok(false);
+    };
+    let conflict = rewrite::conflict(repo, target, tip, &rewrite::Change::Onto(base.tip))?;
+    Ok(conflict.is_none())
+}
+
 /// Replay the branch's commits onto its base, carrying the open change onto
 /// the new tip when the head branch is carried along.
 pub fn restack(
@@ -564,7 +612,9 @@ pub(crate) fn restack_landing(
             // of the session branch instead of an operation of its own, and
             // HEAD moves onto the session — the merge door's two operations.
             // A hold on a named other branch has no worktree to open in, so
-            // it holds as it would without the flag.
+            // it holds as it would without the flag. Nor does a hold at the
+            // open change open anything: no commit owns its conflict, and
+            // `ff resolve` lands it in place.
             let head = crate::head::head_state(repo)?;
             let underfoot = match &head {
                 HeadState::Branch { name, commit, .. } if *name == plan.branch => {
@@ -572,7 +622,11 @@ pub(crate) fn restack_landing(
                 }
                 _ => None,
             };
-            if let (OnConflict::Resolve, Some(tip)) = (on_conflict, underfoot) {
+            if let (OnConflict::Resolve, Some(tip), false) = (
+                on_conflict,
+                underfoot,
+                matches!(plan.held.at, At::OpenChange),
+            ) {
                 let replan = held::replan(repo, &plan.held)?;
                 // A re-aim that conflicts records its hold in the dropped
                 // one's place, `held::record`'s `old`, so one undo puts the
@@ -1057,7 +1111,10 @@ pub(crate) fn plan_restack(
     // that is no longer going to happen.
     let mut replayed = 0usize;
     if decided.is_empty() && !up_to_date && !fast_forward {
-        let probe_open = if head_carried && head_branch.as_deref() == Some(branch.as_str()) {
+        let probe_open = if !decided.mark_open
+            && head_carried
+            && head_branch.as_deref() == Some(branch.as_str())
+        {
             open
         } else {
             None
@@ -1186,10 +1243,18 @@ pub(crate) fn plan_restack(
         }
 
         // The worktree the verb will leave behind. §7 already proved this
-        // merge clean, so this pass only makes it real.
+        // merge clean, or `mark_open` asked for its markers, so this pass
+        // only makes it real.
         if let (Some(open_t), Some(ht_tree), Some(new_ht)) = (open, head_tip_tree, new_head_tip) {
             if open_t == ht_tree {
                 new_worktree = Some(tree_of(repo, new_ht)?);
+            } else if decided.mark_open {
+                new_worktree = Some(open_with_markers(
+                    repo,
+                    ht_tree,
+                    tree_of(repo, new_ht)?,
+                    open_t,
+                )?);
             } else {
                 let mut outcome = merge_into(repo, ht_tree, tree_of(repo, new_ht)?, open_t)?;
                 new_worktree = Some(outcome.tree.write().map_err(Error::repo)?.detach());
@@ -1210,14 +1275,19 @@ pub(crate) fn plan_restack(
             // open-change step, so it is checked here — purely.
             let base_tree = ht_tree;
             let ours_tree = tree_of(repo, base_tip)?;
-            let paths = futures::conflict_paths(repo, base_tree, ours_tree, open_t)?;
-            if !paths.is_empty() {
-                // A fast-forward restacks no commit, so the stack the report
-                // sizes is empty: range was never built and stands at zero.
-                return hold_plan(&At::OpenChange, &paths, replayed_range.len());
+            if !decided.mark_open {
+                let paths = futures::conflict_paths(repo, base_tree, ours_tree, open_t)?;
+                if !paths.is_empty() {
+                    // A fast-forward restacks no commit, so the stack the
+                    // report sizes is empty: range was never built and stands
+                    // at zero.
+                    return hold_plan(&At::OpenChange, &paths, replayed_range.len());
+                }
             }
             if open_t == ht_tree {
                 new_worktree = Some(ours_tree);
+            } else if decided.mark_open {
+                new_worktree = Some(open_with_markers(repo, base_tree, ours_tree, open_t)?);
             } else {
                 let mut outcome = merge_into(repo, base_tree, ours_tree, open_t)?;
                 new_worktree = Some(outcome.tree.write().map_err(Error::repo)?.detach());
@@ -1342,6 +1412,11 @@ fn commit_restack(
     let mut hold_transition = None;
     if let Some(clearing) = &decided.clearing {
         let (held, resolving) = held::clearing_transitions(clearing);
+        // A return trip clears the hold when it lands. A landing without one
+        // has only step 12.2 to do it.
+        if return_trip.is_none() {
+            hold_transition = held.clone();
+        }
         record.held = held;
         record.resolving = resolving;
     } else {

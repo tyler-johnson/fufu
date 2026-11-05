@@ -41,7 +41,7 @@ Repository commands normally attempt a snapshot before acting, subject to their 
 | Replay onto a base | `git rebase <base>` | [`ff restack`](../reference/cli/restack.md) | Uses the recorded base, otherwise trunk; descendants follow with [cascade exceptions](../concepts/branches.md#the-cascade). May auto-fetch first. |
 | Change the base | `git rebase --onto <base> …` | `ff restack --onto <base>` | Records the new base for later restacks. A conflicting branch holds; earlier successful branches can already have moved. |
 | Land a feature locally | Rebase, switch, fast-forward merge, branch delete | [`ff fold [<target>]`](../reference/cli/fold.md) | Replays onto the target (default trunk), advances it, deletes the source, and switches there. `--stay` keeps the source checkout. |
-| Resolve a deferred replay | `git rebase --continue` | [`ff resolve`](../reference/cli/resolve.md), edit markers, `ff done` | A rewrite resolution uses a session; overlapping conflicts can require another round. A [parked-change arrival](../concepts/held-rewrites.md#parked-change-arrival) resolves in place without done. |
+| Resolve a deferred replay | `git rebase --continue` | [`ff resolve`](../reference/cli/resolve.md), edit markers, `ff done` | A rewrite resolution uses a session; overlapping conflicts can require another round. A [parked-change arrival](../concepts/held-rewrites.md#parked-change-arrival) or an [open-change conflict](../concepts/held-rewrites.md#open-change-conflict) resolves in place without done. |
 
 ## Fetch and push
 

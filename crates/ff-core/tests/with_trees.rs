@@ -259,6 +259,7 @@ fn a_decided_tree_is_what_the_commit_carries() {
     let decided = Decided {
         trees: HashMap::from([(oid(&f1), supplied)]),
         clearing: None,
+        mark_open: false,
     };
     let (outcome, _ctx) = restack_with_call(&fx, NOW, &decided);
     let report = match outcome {
@@ -299,6 +300,7 @@ fn a_decided_landing_skips_the_pre_flight() {
     let decided = Decided {
         trees: HashMap::from([(oid(&f1), supplied)]),
         clearing: None,
+        mark_open: false,
     };
 
     let (outcome, _ctx) = restack_with_call(&fx, NOW, &decided);
@@ -343,6 +345,7 @@ fn a_decided_absorb_skips_the_fold() {
     let decided = Decided {
         trees: HashMap::from([(oid(&c1), supplied), (oid(&c2), c2_tree)]),
         clearing: None,
+        mark_open: false,
     };
     let (outcome, _ctx) = absorb_with_call(&fx, &c1, &decided, NOW);
     let report = match outcome {
@@ -383,6 +386,7 @@ fn a_decided_lift_lands() {
     let decided = Decided {
         trees: HashMap::from([(oid(&c2), supplied)]),
         clearing: None,
+        mark_open: false,
     };
 
     let (outcome, _ctx) = lift_with_call(&fx, &c1, &decided, NOW);
@@ -443,6 +447,7 @@ fn a_decided_done_lands() {
     let decided = Decided {
         trees: HashMap::from([(oid(&c2), supplied)]),
         clearing: None,
+        mark_open: false,
     };
     let (outcome, _ctx) = done_with_call(&fx, &decided, NOW + 100);
     let report = match outcome {
