@@ -57,14 +57,15 @@ pub(crate) fn merge_into(
 }
 
 /// The open change merged onto the tip it now sits on, its conflicts written
-/// as markers labeled the way a replayed step's are.
-fn open_with_markers(
+/// as markers labeled the way a replayed step's are, and your version kept
+/// where a conflict can't take markers.
+pub(crate) fn open_landing(
     repo: &gix::Repository,
     base: gix::ObjectId,
     ours: gix::ObjectId,
     open: gix::ObjectId,
-) -> Result<gix::ObjectId> {
-    let (tree, _paths) = rewrite::merged(
+) -> Result<rewrite::Kept> {
+    let (tree, paths) = rewrite::merged(
         repo,
         base,
         ours,
@@ -74,7 +75,7 @@ fn open_with_markers(
         1,
         "your open change",
     )?;
-    Ok(tree)
+    rewrite::keep_yours(repo, tree, open, &paths)
 }
 
 /// A restack that conflicts is an outcome, not an error: record the hold as
@@ -1249,12 +1250,8 @@ pub(crate) fn plan_restack(
             if open_t == ht_tree {
                 new_worktree = Some(tree_of(repo, new_ht)?);
             } else if decided.mark_open {
-                new_worktree = Some(open_with_markers(
-                    repo,
-                    ht_tree,
-                    tree_of(repo, new_ht)?,
-                    open_t,
-                )?);
+                new_worktree =
+                    Some(open_landing(repo, ht_tree, tree_of(repo, new_ht)?, open_t)?.tree);
             } else {
                 let mut outcome = merge_into(repo, ht_tree, tree_of(repo, new_ht)?, open_t)?;
                 new_worktree = Some(outcome.tree.write().map_err(Error::repo)?.detach());
@@ -1287,7 +1284,7 @@ pub(crate) fn plan_restack(
             if open_t == ht_tree {
                 new_worktree = Some(ours_tree);
             } else if decided.mark_open {
-                new_worktree = Some(open_with_markers(repo, base_tree, ours_tree, open_t)?);
+                new_worktree = Some(open_landing(repo, base_tree, ours_tree, open_t)?.tree);
             } else {
                 let mut outcome = merge_into(repo, base_tree, ours_tree, open_t)?;
                 new_worktree = Some(outcome.tree.write().map_err(Error::repo)?.detach());

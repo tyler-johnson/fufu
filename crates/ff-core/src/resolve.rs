@@ -392,11 +392,17 @@ fn land_open_change(
         )));
     };
     let new_tip = gix::ObjectId::from_hex(restack.new_tip.as_bytes()).map_err(Error::repo)?;
-    let paths = crate::futures::conflict_paths(repo, tip_tree, tree_of(repo, new_tip)?, open)?;
+    let landed = crate::restack::open_landing(
+        &repo.clone().with_object_memory(),
+        tip_tree,
+        tree_of(repo, new_tip)?,
+        open,
+    )?;
     Ok((
         ResolveOutcome::Carried(CarriedReport {
             restack: *restack,
-            paths,
+            paths: landed.marked,
+            kept: landed.kept,
         }),
         ctx,
     ))

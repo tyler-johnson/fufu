@@ -19,7 +19,8 @@ pub use chain::{
     regions,
 };
 pub(crate) use chain::{
-    REBASING, carries_markers, chain_labels, is_stale_resolution, merged, stack_size,
+    Kept, REBASING, carries_markers, chain_labels, is_stale_resolution, keep_yours, merged,
+    stack_size,
 };
 pub use replay::{
     Change, Clearing, Decided, DropReason, Dropped, Flattened, MoveInto, Rewrite, RewritePlan,

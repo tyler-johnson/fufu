@@ -820,9 +820,12 @@ pub enum ResolveOutcome {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CarriedReport {
     pub restack: RestackReport,
-    /// Files carrying conflict markers, sorted; empty when the open change
-    /// applied cleanly.
+    /// Files carrying conflict markers, sorted.
     pub paths: Vec<String>,
+    /// Files that conflicted without taking markers, binary or
+    /// modify/delete, where your version stands, sorted. Both lists are empty
+    /// when the open change applied cleanly.
+    pub kept: Vec<String>,
 }
 
 /// A held arrival laid into the open change.

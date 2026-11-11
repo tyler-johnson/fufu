@@ -37,7 +37,7 @@ A held arrival occurs when `ff switch` cannot replay parked work onto a moved br
 
 A restack holds at the open change when the branch's commits replay cleanly and only your uncommitted work conflicts. This includes a branch with no commits of its own that only has to fast-forward. Resolve lands it in place: it moves the branch and lays the open change over the new tip with markers, in one operation, with no session and no done step. Fix the markers and continue ordinary work. If the change no longer conflicts, it lands clean. One `ff undo` restores the tip, the original change, and the hold.
 
-If a commit conflicts by the time you resolve, because the change was committed since the hold, resolve opens a session as usual. A conflict that takes no text markers, such as a binary file or a modify/delete, is named in the report like the others but gets no markers: the file can hold the new tip's version, with yours gone from the working copy. One `ff undo` brings it back.
+If a commit conflicts by the time you resolve, because the change was committed since the hold, resolve opens a session as usual. A conflict that can't take markers, such as a binary file or a modify/delete, keeps your version in the working copy, and the report lists it apart from the marked files. The new tip holds the other version: `ff restore <path>` takes it instead, deleting the file when the tip doesn't have it.
 
 ### Abandoning and undo
 

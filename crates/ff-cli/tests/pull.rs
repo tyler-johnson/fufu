@@ -2267,6 +2267,87 @@ fn resolve_says_what_it_did_with_the_open_change() {
     assert!(text.contains("undo: ff undo"), "{text}");
 }
 
+/// `open_change_behind_the_remote`'s shape with a binary file: trunk changed `b.bin`, and so did your open change. With `gone`, trunk also deleted `gone.txt`, which your open change modified.
+fn binary_behind_the_remote(gone: bool) -> Fixture {
+    let fx = Fixture::new_cloned();
+    std::fs::write(fx.path().join("b.bin"), b"\0base\n").unwrap();
+    if gone {
+        fx.write("gone.txt", "base\n");
+    }
+    fx.commit("base");
+    fx.git(&["push", "-q", "-u", "origin", "main"]);
+    let other = second_clone(&fx);
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    std::fs::write(fx.path().join("b.bin"), b"\0mine\n").unwrap();
+    std::fs::write(other.join("b.bin"), b"\0theirs\n").unwrap();
+    if gone {
+        fx.write("gone.txt", "mine\n");
+        fx.git_in(&other, &["rm", "-q", "gone.txt"]);
+    }
+    fx.git_in(&other, &["commit", "-q", "-am", "upstream"]);
+    fx.git_in(&other, &["push", "-q", "origin", "main"]);
+    fx
+}
+
+#[test]
+fn resolve_keeps_your_version_of_a_binary_file() {
+    let fx = binary_behind_the_remote(false);
+    assert_eq!(ff(&fx, &["pull"]).status.code(), Some(3));
+
+    let resolved = ff(&fx, &["resolve"]);
+    assert!(resolved.status.success(), "{}", out(&resolved));
+    let text = stdout(&resolved);
+    assert!(
+        text.contains(
+            "your version stands in 1 file that can't take markers:\n  b.bin\n    ff restore <path> takes main's version instead\n"
+        ),
+        "{text}"
+    );
+    assert!(!text.contains("conflict markers"), "{text}");
+    assert!(!text.contains("applies cleanly"), "{text}");
+    assert_eq!(std::fs::read(fx.path().join("b.bin")).unwrap(), b"\0mine\n");
+
+    let undone = ff(&fx, &["undo"]);
+    assert!(undone.status.success(), "{}", out(&undone));
+    let resolved = ff(&fx, &["resolve", "--json"]);
+    assert!(resolved.status.success(), "{}", out(&resolved));
+    let payload = json(&resolved);
+    assert_eq!(
+        payload["data"]["carried"]["kept"],
+        serde_json::json!(["b.bin"]),
+        "{payload}"
+    );
+    assert_eq!(
+        payload["data"]["carried"]["paths"],
+        serde_json::json!([]),
+        "{payload}"
+    );
+}
+
+#[test]
+fn restore_takes_the_tips_version_of_a_kept_file() {
+    let fx = binary_behind_the_remote(true);
+    assert_eq!(ff(&fx, &["pull"]).status.code(), Some(3));
+    let resolved = ff(&fx, &["resolve"]);
+    assert!(resolved.status.success(), "{}", out(&resolved));
+    assert_eq!(std::fs::read(fx.path().join("b.bin")).unwrap(), b"\0mine\n");
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("gone.txt")).unwrap(),
+        "mine\n"
+    );
+
+    let restored = ff(&fx, &["restore", "b.bin"]);
+    assert!(restored.status.success(), "{}", out(&restored));
+    assert_eq!(
+        std::fs::read(fx.path().join("b.bin")).unwrap(),
+        b"\0theirs\n"
+    );
+
+    let restored = ff(&fx, &["restore", "gone.txt"]);
+    assert!(restored.status.success(), "{}", out(&restored));
+    assert!(!fx.path().join("gone.txt").exists());
+}
+
 /// `feature` is behind its own shared copy, which is no base to re-aim at:
 /// the landing goes there without the refusal a person's aim gets, and
 /// records nothing.

@@ -60,7 +60,7 @@ Here `ff resolve` lands the restack in place: it moves the branch, replays any c
 
 The `--resolve` flag leaves this hold standing, since there is no session to open. Commit the change before resolving and it becomes a conflict in a commit, which opens a session as usual.
 
-A conflict that takes no text markers, such as a binary file or a modify/delete, gets none here. The report names the file, but it can hold the new tip's version, with yours gone from the working copy. One `ff undo` brings it back.
+A conflict that can't take markers, such as a binary file or a modify/delete, keeps your version in the working copy, and the report lists it apart from the marked files. The new tip holds the other version: [`ff restore <path>`](../reference/cli/restore.md) takes it instead, deleting the file when the tip doesn't have it.
 
 <a id="deferred-requires-loud"></a>
 

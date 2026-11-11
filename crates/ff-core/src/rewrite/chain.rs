@@ -1125,6 +1125,62 @@ pub(crate) fn carries_markers(
     ))
 }
 
+/// A merged tree with your version put back where a conflict took no markers.
+pub(crate) struct Kept {
+    pub tree: gix::ObjectId,
+    /// Unresolved paths carrying conflict markers.
+    pub marked: Vec<String>,
+    /// Unresolved paths that took no markers, where your version stands.
+    pub kept: Vec<String>,
+}
+
+/// The merged tree with your version put back at every unresolved path that took no markers, and the paths sorted into the two lists. `paths` is sorted and deduped. A path where either side is a directory is left as gix placed it, both sides already standing.
+pub(crate) fn keep_yours(
+    repo: &gix::Repository,
+    merged: gix::ObjectId,
+    yours: gix::ObjectId,
+    paths: &[String],
+) -> Result<Kept> {
+    use gix::objs::tree::EntryKind;
+    let mut marked = Vec::new();
+    let mut kept = Vec::new();
+    let mut editor = repo.edit_tree(merged).map_err(Error::repo)?;
+    let merged_tree = repo.find_tree(merged).map_err(Error::repo)?;
+    let yours_tree = repo.find_tree(yours).map_err(Error::repo)?;
+    let entry = |tree: &gix::Tree<'_>, path: &str| -> Result<Option<(EntryKind, gix::ObjectId)>> {
+        Ok(tree
+            .lookup_entry_by_path(path)
+            .map_err(Error::repo)?
+            .map(|e| (e.mode().kind(), e.id().detach())))
+    };
+    for path in paths {
+        if carries_markers(repo, merged, path)? {
+            marked.push(path.clone());
+            continue;
+        }
+        kept.push(path.clone());
+        let theirs = entry(&merged_tree, path)?;
+        let mine = entry(&yours_tree, path)?;
+        let is_tree =
+            |e: &Option<(EntryKind, gix::ObjectId)>| matches!(e, Some((EntryKind::Tree, _)));
+        if is_tree(&theirs) || is_tree(&mine) || theirs == mine {
+            continue;
+        }
+        match mine {
+            Some((kind, id)) => {
+                editor
+                    .upsert(path.as_str(), kind, id)
+                    .map_err(Error::repo)?;
+            }
+            None => {
+                editor.remove(path.as_str()).map_err(Error::repo)?;
+            }
+        }
+    }
+    let tree = editor.write().map_err(Error::repo)?.detach();
+    Ok(Kept { tree, marked, kept })
+}
+
 /// Whether the blob at `path` in `tree` holds a block `step` wrote: the
 /// check that tells a step's own region from one it passed through.
 fn owns_block(

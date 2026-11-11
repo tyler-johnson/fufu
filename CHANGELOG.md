@@ -5,12 +5,13 @@
 ### Fixed
 
 - [`ff hook opencode`](docs/reference/hooks/opencode.md)'s plugin failed to load on OpenCode 2.x ("Plugin must export a default definition with an id and an effect or setup function"). It now default-exports one definition that 2.x and 1.x (1.18.29 and newer) both load. An installed plugin reads as stale until `ff hook -u` or `ff doctor --fix` rewrites it.
-- [`ff resolve`](docs/reference/cli/resolve.md) on a restack held at the open change refused a branch with no commits of its own as stale, and released a branch with commits for a re-run that held again. It now moves the branch and lays the open change over the new tip with markers in one operation, with no session and no [`ff done`](docs/reference/cli/done.md). JSON: `carried`.
+- [`ff resolve`](docs/reference/cli/resolve.md) on a restack held at the open change refused a branch with no commits of its own as stale, and released a branch with commits for a re-run that held again. It now moves the branch and lays the open change over the new tip with markers in one operation, with no session and no [`ff done`](docs/reference/cli/done.md). A binary or modify/delete conflict keeps your version and is listed apart from the marked files. JSON: `carried`, with the marked files in `carried.paths` and the kept ones in `carried.kept`.
 - [`ff restack --resolve`](docs/reference/cli/restack.md) and [`ff pull --resolve`](docs/reference/cli/pull.md) leave such a hold standing for `ff resolve`. They used to fail after the hold was recorded, or open a session with no conflicts in it.
+- Snapshots, [`ff status`](docs/reference/cli/status.md) and [`ff commit`](docs/reference/cli/commit.md) missed files under a directory that replaced a tracked file. [`ff switch`](docs/reference/cli/switch.md), [`ff restore`](docs/reference/cli/restore.md) and `ff resolve` could then overwrite them unrecoverably.
+- [`ff undo`](docs/reference/cli/undo.md) failed with "Not a directory" and stopped halfway when it had to turn a directory back into a file, such as after a pull that replaced a file with a directory.
 
 ### Known issues
 
-- `ff resolve` landing a restack held at the open change reports a binary or modify/delete conflict as carrying markers, though the file gets none: it can hold the new tip's version, with yours gone from the working copy. One `ff undo` brings it back.
 - Under OpenCode 2.x, shell commands carry no `OPENCODE_SESSION_ID`, because 2.x's shell hook has no session id, so fufu operations run from the shell are not tagged with the OpenCode session. Hook captures are tagged.
 
 ## v0.19.2 — 2026-10-15

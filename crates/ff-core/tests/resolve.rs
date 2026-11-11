@@ -973,3 +973,293 @@ fn a_hold_on_a_cascade_child_lands_on_that_branch() {
     assert_marked(&fx);
     assert_eq!(ff_core::held::of(&fx.repo(), "child").unwrap(), None);
 }
+
+// ---- Conflicts that can't take markers keep your version ----
+
+fn write_bytes(fx: &Fixture, path: &str, bytes: &[u8]) {
+    let abs = fx.path().join(path);
+    std::fs::create_dir_all(abs.parent().unwrap()).unwrap();
+    std::fs::write(abs, bytes).unwrap();
+}
+
+fn bytes(fx: &Fixture, path: &str) -> Vec<u8> {
+    std::fs::read(fx.path().join(path)).unwrap()
+}
+
+/// `base` is committed on `main`, and `feature` forks there. With `own`, `feature` gets one commit of its own that replays cleanly. `main` then commits `theirs`, and `mine` is left uncommitted on `feature`.
+fn behind_with(
+    fx: &Fixture,
+    own: bool,
+    base: impl Fn(&Fixture),
+    theirs: impl Fn(&Fixture),
+    mine: impl Fn(&Fixture),
+) {
+    base(fx);
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    if own {
+        fx.write("own.txt", "own\n");
+        fx.commit("f1");
+    }
+    fx.git(&["switch", "-q", "main"]);
+    theirs(fx);
+    fx.commit("m1");
+    fx.git(&["switch", "-q", "feature"]);
+    mine(fx);
+}
+
+fn binary_behind(fx: &Fixture, own: bool) {
+    behind_with(
+        fx,
+        own,
+        |fx| write_bytes(fx, "b.bin", b"\0base\n"),
+        |fx| write_bytes(fx, "b.bin", b"\0theirs\n"),
+        |fx| write_bytes(fx, "b.bin", b"\0mine\n"),
+    );
+}
+
+fn undo_once(fx: &Fixture) {
+    let opts = ff_core::RewindOptions {
+        force: false,
+        now: Some(NOW + 200),
+        argv: vec!["ff".into(), "undo".into()],
+    };
+    ff_core::undo(&fx.repo(), &opts, &prov()).unwrap();
+}
+
+/// Every worktree file outside `.git`, relative, with its bytes, sorted.
+fn worktree_files(fx: &Fixture) -> Vec<(String, Vec<u8>)> {
+    fn walk(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<(String, Vec<u8>)>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.file_name().is_some_and(|n| n == ".git") {
+                continue;
+            }
+            if path.is_dir() {
+                walk(root, &path, out);
+            } else {
+                let rel = path
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned();
+                out.push((rel, std::fs::read(&path).unwrap()));
+            }
+        }
+    }
+    let root = fx.path();
+    let mut out = Vec::new();
+    walk(&root, &root, &mut out);
+    out.sort();
+    out
+}
+
+#[test]
+fn a_binary_conflict_keeps_your_bytes_on_a_fast_forward() {
+    let fx = Fixture::new();
+    ident(&fx);
+    binary_behind(&fx, false);
+    hold_a_restack(&fx);
+
+    let report = carried(resolve_call(&fx, false, NOW + 100).0);
+
+    assert_eq!(report.kept, vec!["b.bin".to_string()]);
+    assert!(report.paths.is_empty());
+    assert!(report.restack.fast_forward);
+    assert_eq!(rev(&fx, "feature"), rev(&fx, "main"), "the branch moved");
+    assert_eq!(bytes(&fx, "b.bin"), b"\0mine\n");
+    assert_eq!(fx.git(&["status", "--porcelain"]).trim_end(), " M b.bin");
+}
+
+#[test]
+fn a_binary_conflict_keeps_your_bytes_when_commits_replay() {
+    let fx = Fixture::new();
+    ident(&fx);
+    binary_behind(&fx, true);
+    hold_a_restack(&fx);
+    let old_tip = rev(&fx, "feature");
+
+    let report = carried(resolve_call(&fx, false, NOW + 100).0);
+
+    assert_eq!(report.kept, vec!["b.bin".to_string()]);
+    assert_eq!(report.restack.replayed, 1);
+    assert_ne!(rev(&fx, "feature"), old_tip, "the commit was replayed");
+    assert_eq!(rev(&fx, "feature~1"), rev(&fx, "main"));
+    assert_eq!(bytes(&fx, "b.bin"), b"\0mine\n");
+    assert_eq!(read(&fx, "own.txt"), "own\n");
+}
+
+#[test]
+fn a_file_you_deleted_and_the_tip_modified_stays_deleted() {
+    let fx = Fixture::new();
+    ident(&fx);
+    behind_with(
+        &fx,
+        false,
+        |fx| fx.write("gone.txt", "one\n"),
+        |fx| fx.write("gone.txt", "two\n"),
+        |fx| fx.remove("gone.txt"),
+    );
+    hold_a_restack(&fx);
+
+    let report = carried(resolve_call(&fx, false, NOW + 100).0);
+
+    assert_eq!(report.kept, vec!["gone.txt".to_string()]);
+    assert!(report.paths.is_empty());
+    assert!(!fx.path().join("gone.txt").exists());
+    assert_eq!(fx.git(&["status", "--porcelain"]).trim_end(), " D gone.txt");
+}
+
+#[test]
+fn a_file_you_modified_and_the_tip_deleted_keeps_your_content() {
+    let fx = Fixture::new();
+    ident(&fx);
+    behind_with(
+        &fx,
+        false,
+        |fx| fx.write("gone.txt", "one\n"),
+        |fx| fx.remove("gone.txt"),
+        |fx| fx.write("gone.txt", "mine\n"),
+    );
+    hold_a_restack(&fx);
+
+    let report = carried(resolve_call(&fx, false, NOW + 100).0);
+
+    assert_eq!(report.kept, vec!["gone.txt".to_string()]);
+    assert!(report.paths.is_empty());
+    assert_eq!(read(&fx, "gone.txt"), "mine\n");
+    assert_eq!(fx.git(&["status", "--porcelain"]).trim_end(), "?? gone.txt");
+}
+
+#[test]
+fn text_takes_markers_while_binary_keeps_your_version() {
+    let fx = Fixture::new();
+    ident(&fx);
+    behind_with(
+        &fx,
+        false,
+        |fx| {
+            fx.write("f.txt", "one\n");
+            write_bytes(fx, "b.bin", b"\0base\n");
+        },
+        |fx| {
+            fx.write("f.txt", "three\n");
+            write_bytes(fx, "b.bin", b"\0theirs\n");
+        },
+        |fx| {
+            fx.write("f.txt", "mine\n");
+            write_bytes(fx, "b.bin", b"\0mine\n");
+        },
+    );
+    hold_a_restack(&fx);
+
+    let report = carried(resolve_call(&fx, false, NOW + 100).0);
+
+    assert_eq!(report.paths, vec!["f.txt".to_string()]);
+    assert_eq!(report.kept, vec!["b.bin".to_string()]);
+    assert_marked(&fx);
+    assert_eq!(bytes(&fx, "b.bin"), b"\0mine\n");
+}
+
+/// Lands a dir/file conflict, checks your content stands at some path, and that one undo restores the worktree exactly.
+fn dir_file_round_trip(fx: &Fixture) {
+    hold_a_restack(fx);
+    let before = worktree_files(fx);
+    let tip = rev(fx, "feature");
+
+    let report = carried(resolve_call(fx, false, NOW + 100).0);
+    assert_eq!(rev(fx, "feature"), rev(fx, "main"), "the branch moved");
+    let after = worktree_files(fx);
+    assert!(
+        after.iter().any(|(_, b)| b == b"mine\n"),
+        "your content stands somewhere: {after:?} ({report:?})"
+    );
+
+    undo_once(fx);
+    assert_eq!(rev(fx, "feature"), tip);
+    assert_eq!(worktree_files(fx), before);
+}
+
+#[test]
+fn a_file_the_tip_turned_into_a_directory_keeps_your_side() {
+    let fx = Fixture::new();
+    ident(&fx);
+    behind_with(
+        &fx,
+        false,
+        |fx| fx.write("p", "base\n"),
+        |fx| {
+            fx.remove("p");
+            fx.write("p/x.txt", "theirs\n");
+        },
+        |fx| fx.write("p", "mine\n"),
+    );
+    dir_file_round_trip(&fx);
+}
+
+#[test]
+fn a_directory_the_tip_turned_into_a_file_keeps_your_side() {
+    let fx = Fixture::new();
+    ident(&fx);
+    behind_with(
+        &fx,
+        false,
+        |fx| fx.write("p/x.txt", "base\n"),
+        |fx| {
+            fx.remove("p");
+            fx.write("p", "theirs\n");
+        },
+        |fx| fx.write("p/x.txt", "mine\n"),
+    );
+    dir_file_round_trip(&fx);
+}
+
+/// The tip renamed a file you edited, and a text conflict elsewhere holds the restack. Your edit follows the rename.
+#[test]
+fn an_edit_follows_a_file_the_tip_renamed() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let body = "a\nb\nc\nd\ne\nf\ng\nh\n";
+    behind_with(
+        &fx,
+        false,
+        |fx| {
+            fx.write("f.txt", "one\n");
+            fx.write("r.txt", body);
+        },
+        |fx| {
+            fx.write("f.txt", "three\n");
+            fx.remove("r.txt");
+            fx.write("s.txt", body);
+        },
+        |fx| {
+            fx.write("f.txt", "mine\n");
+            fx.write("r.txt", &body.replace("a\n", "mine\n"));
+        },
+    );
+    hold_a_restack(&fx);
+
+    let report = carried(resolve_call(&fx, false, NOW + 100).0);
+
+    assert!(report.paths.contains(&"f.txt".to_string()), "{report:?}");
+    assert_eq!(read(&fx, "s.txt"), body.replace("a\n", "mine\n"));
+    assert!(!fx.path().join("r.txt").exists());
+}
+
+#[test]
+fn one_undo_takes_a_binary_landing_back() {
+    let fx = Fixture::new();
+    ident(&fx);
+    binary_behind(&fx, false);
+    hold_a_restack(&fx);
+    let tip = rev(&fx, "feature");
+    let held = ff_core::held::of(&fx.repo(), "feature").unwrap();
+    assert!(held.is_some());
+
+    carried(resolve_call(&fx, false, NOW + 100).0);
+    undo_once(&fx);
+
+    assert_eq!(rev(&fx, "feature"), tip);
+    assert_eq!(bytes(&fx, "b.bin"), b"\0mine\n");
+    assert_eq!(ff_core::held::of(&fx.repo(), "feature").unwrap(), held);
+}

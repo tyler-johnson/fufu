@@ -206,7 +206,9 @@ pub fn run(ctx: &Ctx, abandon: bool) -> Result<()> {
                         colored
                     )
                 );
-            } else if report.restack.still_open {
+            }
+            render_kept(&report.kept, &report.restack.base, colored);
+            if report.paths.is_empty() && report.kept.is_empty() && report.restack.still_open {
                 println!(
                     "your open change applies cleanly on {}",
                     report.restack.base
@@ -255,4 +257,29 @@ pub fn run(ctx: &Ctx, abandon: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// The files where a conflict took no markers and your version stands, and the route to `whose` version instead. Prints nothing when `kept` is empty.
+fn render_kept(kept: &[String], whose: &str, colored: bool) {
+    if kept.is_empty() {
+        return;
+    }
+    println!(
+        "your version stands in {} file{} that can't take markers:",
+        kept.len(),
+        if kept.len() == 1 { "" } else { "s" }
+    );
+    for path in kept {
+        println!(
+            "{}",
+            crate::render::paint_warn(&format!("  {path}"), colored)
+        );
+    }
+    println!(
+        "    {}",
+        crate::render::paint_dim(
+            &format!("ff restore <path> takes {whose}'s version instead"),
+            colored
+        )
+    );
 }
