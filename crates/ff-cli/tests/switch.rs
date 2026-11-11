@@ -436,3 +436,25 @@ fn dash_m_describes_a_mint_and_is_refused_on_a_continue() {
     );
     assert_ne!(current(&fx), "main", "nothing moved");
 }
+
+/// A tracked file replaced by a directory survives a switch away and back.
+#[test]
+fn a_directory_that_replaced_a_tracked_file_survives_a_round_trip() {
+    let fx = repo();
+    fx.write("p", "base\n");
+    fx.commit("p");
+    fx.git(&["branch", "other"]);
+    fx.remove("p");
+    fx.write("p/x.txt", "mine\n");
+
+    ok(ff(&fx, &["switch", "other"]));
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("p")).unwrap(),
+        "base\n"
+    );
+    ok(ff(&fx, &["switch", "main"]));
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("p/x.txt")).unwrap(),
+        "mine\n"
+    );
+}

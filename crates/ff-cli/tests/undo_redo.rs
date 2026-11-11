@@ -276,3 +276,87 @@ fn undo_takes_no_argument() {
         "ff op restore takes an operation and --force"
     );
 }
+
+/// `ff restore` of a tracked file that a directory replaced writes the file back, and the pre-restore capture holds the directory's contents. `ff undo` groups that capture with the next, so `ff op restore` is the way back, as `ff restore --help` says.
+#[test]
+fn the_pre_restore_capture_holds_a_directory_that_replaced_a_file() {
+    let fx = base();
+    fx.write("p", "base\n");
+    fx.commit("p");
+    fx.remove("p");
+    fx.write("p/x.txt", "mine\n");
+
+    ok(&fx, &["restore", "p"]);
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("p")).unwrap(),
+        "base\n"
+    );
+
+    let log: serde_json::Value = serde_json::from_str(&ok(&fx, &["op", "log", "--json"])).unwrap();
+    let pre = log["data"]["ops"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|op| op["summary"] == "pre: ff restore p")
+        .expect("the pre-restore capture");
+    ok(&fx, &["op", "restore", pre["id"].as_str().unwrap()]);
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("p/x.txt")).unwrap(),
+        "mine\n"
+    );
+}
+
+/// `feature` sits at `main`'s parent, and `main` has moved on. A restack fast-forwards `feature` and moves the worktree, so one `ff undo` has to move it back.
+fn behind_main(fx: &Fixture) {
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.git(&["switch", "-q", "main"]);
+}
+
+/// `main` turns file `p` into `p/x.txt`. Undoing the restack that brought it turns the directory back into the file.
+#[test]
+fn undo_turns_a_directory_back_into_a_file() {
+    let fx = base();
+    fx.write("p", "base\n");
+    fx.commit("p");
+    behind_main(&fx);
+    fx.remove("p");
+    fx.write("p/x.txt", "theirs\n");
+    fx.commit("p: a directory");
+    fx.git(&["switch", "-q", "feature"]);
+
+    ok(&fx, &["restack", "--onto", "main", "--no-fetch"]);
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("p/x.txt")).unwrap(),
+        "theirs\n"
+    );
+
+    ok(&fx, &["undo"]);
+    let p = fx.path().join("p");
+    assert!(p.is_file(), "p is a file again");
+    assert_eq!(std::fs::read_to_string(&p).unwrap(), "base\n");
+}
+
+/// The reverse: `main` turns `p/x.txt` into file `p`, and one `ff undo` brings the directory back.
+#[test]
+fn undo_turns_a_file_back_into_a_directory() {
+    let fx = base();
+    fx.write("p/x.txt", "base\n");
+    fx.commit("p: a directory");
+    behind_main(&fx);
+    fx.remove("p");
+    fx.write("p", "theirs\n");
+    fx.commit("p: a file");
+    fx.git(&["switch", "-q", "feature"]);
+
+    ok(&fx, &["restack", "--onto", "main", "--no-fetch"]);
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("p")).unwrap(),
+        "theirs\n"
+    );
+
+    ok(&fx, &["undo"]);
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("p/x.txt")).unwrap(),
+        "base\n"
+    );
+}

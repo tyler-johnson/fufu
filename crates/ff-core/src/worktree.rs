@@ -35,7 +35,11 @@ pub(crate) fn apply_tree_transition(
         .workdir()
         .ok_or_else(|| Error::coded("repo/bare", "bare repository: no worktree to write", vec![]))?
         .to_owned();
-    let changes = tree_changes(repo, from, to)?;
+    // Deletions first: a directory becoming a file has to be emptied, and so pruned, before the file is written where it stood.
+    let (mut changes, materialize): (Vec<_>, Vec<_>) = tree_changes(repo, from, to)?
+        .into_iter()
+        .partition(|c| matches!(c.action, Action::DeleteFromWorktree));
+    changes.extend(materialize);
     let mut out = Transition::default();
     let (mut pipeline, _index) = repo.filter_pipeline(None).map_err(Error::repo)?;
 
@@ -51,7 +55,13 @@ pub(crate) fn apply_tree_transition(
                         prune_empty_parents(&workdir, &abs);
                         out.deleted.push(change.path);
                     }
-                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                    // A parent that is a file means the path can't exist.
+                    Err(err)
+                        if matches!(
+                            err.kind(),
+                            std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
+                        ) =>
+                    {
                         out.deleted.push(change.path);
                     }
                     Err(err) => {
