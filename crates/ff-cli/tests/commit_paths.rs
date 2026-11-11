@@ -205,3 +205,40 @@ fn a_forgotten_m_is_named_rather_than_matched() {
         "a refusal writes nothing"
     );
 }
+
+/// A tracked file replaced by a directory: the commit carries the file inside it, and the old file is gone.
+#[test]
+fn a_directory_that_replaced_a_tracked_file_is_committed() {
+    let fx = repo();
+    fx.write("p", "base\n");
+    fx.commit("init");
+    fx.remove("p");
+    fx.write("p/x.txt", "mine\n");
+
+    let out = ff(&fx, &["commit", "-m", "p: a directory"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let tree = fx.git(&["ls-tree", "-r", "--name-only", "HEAD"]);
+    assert_eq!(tree.lines().collect::<Vec<_>>(), ["p/x.txt"], "{tree}");
+    assert_eq!(fx.git(&["show", "HEAD:p/x.txt"]), "mine\n");
+}
+
+/// The walk under such a directory honors `.gitignore`.
+#[test]
+fn an_ignored_file_under_a_directory_that_replaced_a_tracked_file_stays_out() {
+    let fx = repo();
+    fx.write(".gitignore", "*.log\n");
+    fx.write("p", "base\n");
+    fx.commit("init");
+    fx.remove("p");
+    fx.write("p/x.txt", "mine\n");
+    fx.write("p/noise.log", "ignored\n");
+
+    let out = ff(&fx, &["commit", "-m", "p: a directory"]);
+    assert!(out.status.success(), "stderr: {}", stderr(&out));
+    let tree = fx.git(&["ls-tree", "-r", "--name-only", "HEAD"]);
+    assert_eq!(
+        tree.lines().collect::<Vec<_>>(),
+        [".gitignore", "p/x.txt"],
+        "{tree}"
+    );
+}

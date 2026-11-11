@@ -126,6 +126,12 @@ pub fn status(repo: &gix::Repository) -> Result<Status> {
     // Item order is undefined under the parallel iterator: impose path order.
     staged.sort_by(|a, b| a.path.cmp(&b.path));
     unstaged.sort_by(|a, b| a.path.cmp(&b.path));
+    let deleted: Vec<String> = unstaged
+        .iter()
+        .filter(|e| e.kind == ChangeKind::Deleted)
+        .map(|e| e.path.clone())
+        .collect();
+    untracked.extend(crate::snapshot::tree::shadowed_untracked(repo, &deleted)?);
     untracked.sort();
 
     Ok(Status {

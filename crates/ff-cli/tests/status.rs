@@ -887,3 +887,18 @@ fn status_and_log_capture_first() {
     let subject = fx.git(&["log", "-1", "--format=%s", "refs/fufu/snap/main"]);
     assert_eq!(subject.trim(), "pre: ff log");
 }
+
+/// A tracked file replaced by a directory of the same name: the files inside
+/// are listed as new, not hidden behind the deletion.
+#[test]
+fn status_names_a_file_under_a_directory_that_replaced_a_tracked_file() {
+    let fx = repo();
+    fx.write("p", "base\n");
+    fx.commit("init");
+    fx.remove("p");
+    fx.write("p/x.txt", "mine\n");
+    let out = ff(&fx, &["status"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("p/x.txt"), "p/x.txt is listed: {text}");
+}

@@ -254,7 +254,58 @@ pub(crate) fn scan(repo: &gix::Repository) -> Result<Scan> {
     // A conflicted path with no worktree change still needs its worktree side
     // captured (or, if gone from disk, removed) — `add -A` semantics.
     scan.rehash.extend(conflicted);
+    let shadowed = shadowed_untracked(repo, &scan.wt_deletes)?;
+    scan.untracked.extend(shadowed);
     Ok(scan)
+}
+
+/// Untracked files under directories standing where the index has a file.
+/// gix's walk takes such a directory for the tracked file and never enters it, so it is walked again against an index without those entries.
+pub(crate) fn shadowed_untracked<'a>(
+    repo: &gix::Repository,
+    removed: impl IntoIterator<Item = &'a String>,
+) -> Result<Vec<String>> {
+    use gix::dir::entry::{Kind, Status};
+    use gix::dir::walk::EmissionMode;
+
+    let Some(workdir) = repo.workdir() else {
+        return Ok(Vec::new());
+    };
+    let dirs: BTreeSet<&str> = removed
+        .into_iter()
+        .map(String::as_str)
+        .filter(|p| std::fs::symlink_metadata(workdir.join(p)).is_ok_and(|md| md.is_dir()))
+        .collect();
+    if dirs.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut index: gix::index::File = (**repo.index_or_empty().map_err(Error::repo)?).clone();
+    index.remove_entries(|_, path, _| dirs.contains(path.to_string().as_str()));
+    let options = repo
+        .dirwalk_options()
+        .map_err(Error::repo)?
+        .emit_untracked(EmissionMode::Matching)
+        .emit_ignored(None)
+        .emit_tracked(false)
+        .emit_pruned(false)
+        .emit_empty_directories(false);
+    let walk = repo
+        .dirwalk_iter(
+            gix::worktree::IndexPersistedOrInMemory::InMemory(index),
+            dirs.iter()
+                .map(|d| gix::bstr::BString::from(format!("{d}/"))),
+            Default::default(),
+            options,
+        )
+        .map_err(Error::repo)?;
+    let mut found = Vec::new();
+    for item in walk {
+        let entry = item.map_err(Error::repo)?.entry;
+        if entry.status == Status::Untracked && entry.disk_kind != Some(Kind::Directory) {
+            found.push(entry.rela_path.to_string());
+        }
+    }
+    Ok(found)
 }
 
 fn item_path(item: &index_worktree::Item) -> String {
@@ -281,6 +332,10 @@ pub(crate) fn assemble(
             .map_err(Error::repo)?;
     }
     for path in &scan.staged_deletes {
+        editor.remove(path.as_str()).map_err(Error::repo)?;
+    }
+    // Before the upserts: a file deleted at `p` may have a directory `p/` of untracked files standing in its place, and removing `p` afterward would take that directory with it.
+    for path in &scan.wt_deletes {
         editor.remove(path.as_str()).map_err(Error::repo)?;
     }
 
@@ -324,9 +379,6 @@ pub(crate) fn assemble(
         }
     }
 
-    for path in &scan.wt_deletes {
-        editor.remove(path.as_str()).map_err(Error::repo)?;
-    }
     let tree = editor.write().map_err(Error::repo)?.detach();
     Ok((tree, skipped))
 }
