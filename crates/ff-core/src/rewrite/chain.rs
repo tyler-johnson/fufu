@@ -979,9 +979,72 @@ pub(crate) fn merged(
     let mut outcome = repo
         .merge_trees(base, ours, their, labels, options)
         .map_err(Error::repo)?;
+    safe_side_paths(&mut outcome, [&ours_label, &theirs])?;
     let paths = crate::futures::unresolved(&outcome);
     let tree = outcome.tree.write().map_err(Error::repo)?.detach();
     Ok((tree, paths))
+}
+
+/// Rename every entry gix moved aside under a label that Windows can't take in a path.
+///
+/// When one side's file is in the way of the other side's directory, or of an entry of another type, gix moves it to `path~<label>`, qualifying `path` or one of its parents. A chain label carries a quote, which Windows forbids, and on Windows gix refuses to write such a tree at all. Each moved entry gets the same name with every character Windows forbids in the qualifier replaced by `_`, the way gix already replaces `/`. Only the qualifier changes, never the repository's own path components.
+pub(crate) fn safe_side_paths(
+    outcome: &mut gix::merge::tree::Outcome<'_>,
+    labels: [&str; 2],
+) -> Result<()> {
+    use gix::merge::tree::ResolutionFailure as Failure;
+    let forbidden = |c: char| c.is_control() || "<>:\"|?*\\".contains(c);
+    let qualifiers: Vec<(String, String)> = labels
+        .iter()
+        .map(|label| {
+            let qualifier = format!("~{}", label.replace('/', "_"));
+            let safe = qualifier
+                .chars()
+                .map(|c| if forbidden(c) { '_' } else { c })
+                .collect::<String>();
+            (qualifier, safe)
+        })
+        .filter(|(qualifier, safe)| qualifier != safe)
+        .collect();
+    if qualifiers.is_empty() {
+        return Ok(());
+    }
+    let moved: Vec<String> = outcome
+        .conflicts
+        .iter()
+        .filter_map(|c| match &c.resolution {
+            Err(Failure::OursDirectoryTheirsNonDirectoryTheirsRenamed {
+                renamed_unique_path_of_theirs: path,
+            })
+            | Err(Failure::OursModifiedTheirsDirectoryThenOursRenamed {
+                renamed_unique_path_to_modified_blob: path,
+            })
+            | Err(Failure::OursAddedTheirsAddedTypeMismatch {
+                their_unique_location: path,
+            }) => Some(path.to_string()),
+            _ => None,
+        })
+        .collect();
+    for path in moved {
+        let Some((qualifier, safe)) = qualifiers.iter().find(|(q, _)| path.contains(q.as_str()))
+        else {
+            continue;
+        };
+        let Some((kind, id)) = outcome
+            .tree
+            .get(path.as_str())
+            .map(|e| (e.mode().kind(), e.id().detach()))
+        else {
+            continue;
+        };
+        let renamed = path.replacen(qualifier.as_str(), safe, 1);
+        outcome.tree.remove(path.as_str()).map_err(Error::repo)?;
+        outcome
+            .tree
+            .upsert(renamed.as_str(), kind, id)
+            .map_err(Error::repo)?;
+    }
+    Ok(())
 }
 
 /// The closer's verb for a replayed step.

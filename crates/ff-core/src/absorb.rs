@@ -232,6 +232,7 @@ fn merge_into<'a>(
     labels: Option<&(String, String)>,
 ) -> Result<gix::merge::tree::Outcome<'a>> {
     let options = repo.tree_merge_options().map_err(Error::repo)?;
+    let labels_given = labels;
     let labels = match labels {
         Some((ours_label, theirs_label)) => gix::merge::blob::builtin_driver::text::Labels {
             ancestor: None,
@@ -240,8 +241,13 @@ fn merge_into<'a>(
         },
         None => Default::default(),
     };
-    repo.merge_trees(base, ours, theirs, labels, options)
-        .map_err(Error::repo)
+    let mut outcome = repo
+        .merge_trees(base, ours, theirs, labels, options)
+        .map_err(Error::repo)?;
+    if let Some((ours_label, theirs_label)) = labels_given {
+        crate::rewrite::safe_side_paths(&mut outcome, [ours_label, theirs_label])?;
+    }
+    Ok(outcome)
 }
 
 /// The labels a fold writes when it conflicts. A conflicted fold is handed

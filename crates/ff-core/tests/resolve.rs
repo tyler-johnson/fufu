@@ -1163,6 +1163,8 @@ fn text_takes_markers_while_binary_keeps_your_version() {
 
 /// Lands a dir/file conflict, checks your content stands at some path, and that one undo restores the worktree exactly.
 fn dir_file_round_trip(fx: &Fixture) {
+    // Windows forbids `"` in a path, and a side's label carries one. Validating as Windows does holds every platform to it.
+    fx.set_config("gitoxide.core.protectWindows", "true");
     hold_a_restack(fx);
     let before = worktree_files(fx);
     let tip = rev(fx, "feature");
@@ -1173,6 +1175,10 @@ fn dir_file_round_trip(fx: &Fixture) {
     assert!(
         after.iter().any(|(_, b)| b == b"mine\n"),
         "your content stands somewhere: {after:?} ({report:?})"
+    );
+    assert!(
+        after.iter().all(|(path, _)| !path.contains('"')),
+        "no path Windows can't take: {after:?}"
     );
 
     undo_once(fx);
@@ -1262,4 +1268,38 @@ fn one_undo_takes_a_binary_landing_back() {
     assert_eq!(rev(&fx, "feature"), tip);
     assert_eq!(bytes(&fx, "b.bin"), b"\0mine\n");
     assert_eq!(ff_core::held::of(&fx.repo(), "feature").unwrap(), held);
+}
+
+/// A dir/file conflict in a commit opens a session under Windows path rules: the side gix moves aside is named for a label that carries a quote.
+#[test]
+fn a_dir_file_conflict_in_a_commit_opens_under_windows_path_rules() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.set_config("gitoxide.core.protectWindows", "true");
+    fx.write("p", "base\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("p", "mine\n");
+    fx.commit("f1");
+    fx.git(&["switch", "-q", "main"]);
+    fx.remove("p");
+    fx.write("p/x.txt", "theirs\n");
+    fx.commit("m1");
+    fx.git(&["switch", "-q", "feature"]);
+    hold_a_restack(&fx);
+
+    let (outcome, _ctx) = resolve_call(&fx, false, NOW + 100);
+    assert!(
+        matches!(outcome, ResolveOutcome::Opened(_)),
+        "got {outcome:?}"
+    );
+    let files = worktree_files(&fx);
+    assert!(
+        files.iter().any(|(_, b)| b == b"mine\n"),
+        "your side stands somewhere: {files:?}"
+    );
+    assert!(
+        files.iter().all(|(path, _)| !path.contains('"')),
+        "{files:?}"
+    );
 }

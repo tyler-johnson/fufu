@@ -20,7 +20,7 @@ pub use chain::{
 };
 pub(crate) use chain::{
     Kept, REBASING, carries_markers, chain_labels, is_stale_resolution, keep_yours, merged,
-    stack_size,
+    safe_side_paths, stack_size,
 };
 pub use replay::{
     Change, Clearing, Decided, DropReason, Dropped, Flattened, MoveInto, Rewrite, RewritePlan,
