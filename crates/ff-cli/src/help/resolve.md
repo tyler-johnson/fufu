@@ -31,7 +31,7 @@ A later rewrite can drop, clear, or update a held merge, as it can a held restac
 
 ### Parked-change arrivals
 
-A held arrival occurs when `ff switch` cannot replay parked work onto a moved branch tip. Resolve handles it in place: the marked files become the open change, with no session and no done step. Fix them and continue ordinary work. Resolution refuses if the branch already has an open change; commit that work first. Switching away only parks it on the same branch, so returning resumes the blocker.
+A held arrival occurs when `ff switch` cannot replay parked work onto a moved branch tip. Resolve handles it in place: the marked files become the open change, with no session and no done step. Fix them and continue ordinary work. A file that can't take markers, such as a binary file or a modify/delete, keeps your version, and `ff restore <path>` takes the branch's instead. Resolution refuses if the branch already has an open change; commit that work first. Switching away only parks it on the same branch, so returning resumes the blocker.
 
 ### Open-change conflicts
 

@@ -845,20 +845,30 @@ fn lay_arrival(
     // and nothing needs markers.
     let replan = held::replan(repo, &held)?;
     let conflict = crate::rewrite::conflict(repo, replan.target, replan.tip, &replan.change)?;
-    let (tree, regions) = match conflict {
+    let (tree, regions, marked, kept) = match conflict {
         None => {
             let arrive = park::plan_replay(repo, &branch, open, tip, tip_tree, now)?;
             let (end_tree, _) = arrive.end_trees(tip_tree);
-            (end_tree, 0usize)
+            (end_tree, 0usize, Vec::new(), Vec::new())
         }
         Some(_) => {
             let chain =
                 crate::rewrite::chain(repo, replan.target, replan.tip, &replan.change, &[])?;
             let regions = crate::rewrite::regions(repo, &chain)?;
-            (chain.tree, regions.len())
+            let mut paths: Vec<String> = chain
+                .steps
+                .iter()
+                .flat_map(|s| s.paths.iter().cloned())
+                .collect();
+            paths.sort();
+            paths.dedup();
+            // An arrival replays one commit, the parked one, so its tree is yours.
+            let landed =
+                crate::rewrite::keep_yours(repo, chain.tree, tree_of(repo, open)?, &paths)?;
+            (landed.tree, regions.len(), landed.marked, landed.kept)
         }
     };
-    let clean = regions == 0;
+    let clean = regions == 0 && kept.is_empty();
 
     // The open commit the operation lands: the marker tree (or the merged
     // one) over the tip, wearing the restored identity.
@@ -938,11 +948,6 @@ fn lay_arrival(
     meta.pending_description = description;
     crate::branchmeta::write(repo, &branch, &meta)?;
 
-    let paths: Vec<String> = if clean {
-        Vec::new()
-    } else {
-        held.paths.clone()
-    };
     Ok((
         ResolveOutcome::Laid(LaidReport {
             branch,
@@ -952,7 +957,8 @@ fn lay_arrival(
                 files,
                 folded: None,
             },
-            paths,
+            paths: marked,
+            kept,
             regions,
         }),
         ctx,

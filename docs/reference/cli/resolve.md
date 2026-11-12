@@ -66,13 +66,13 @@ A later rewrite can drop, clear, or update a held merge, as it can a held restac
 
 ## Parked-change arrivals
 
-A held arrival occurs when [`ff switch`](switch.md) cannot replay parked work onto a moved branch tip. Resolve handles it in place: the marked files become the open change, with no session and no done step. Fix them and continue ordinary work. Resolution refuses if the branch already has an open change; commit that work first. Switching away only parks it on the same branch, so returning resumes the blocker.
+A held arrival occurs when [`ff switch`](switch.md) cannot replay parked work onto a moved branch tip. Resolve handles it in place: the marked files become the open change, with no session and no done step. Fix them and continue ordinary work. A file that can't take markers, such as a binary file or a modify/delete, keeps your version, and [`ff restore <path>`](restore.md) takes the branch's instead. Resolution refuses if the branch already has an open change; commit that work first. Switching away only parks it on the same branch, so returning resumes the blocker.
 
 ## Open-change conflicts
 
 A restack holds at the open change when the branch's commits replay cleanly and only your uncommitted work conflicts. This includes a branch with no commits of its own that only has to fast-forward. Resolve lands it in place: it moves the branch and lays the open change over the new tip with markers, in one operation, with no session and no done step. Fix the markers and continue ordinary work. If the change no longer conflicts, it lands clean. One `ff undo` restores the tip, the original change, and the hold.
 
-If a commit conflicts by the time you resolve, because the change was committed since the hold, resolve opens a session as usual. A conflict that can't take markers, such as a binary file or a modify/delete, keeps your version in the working copy, and the report lists it apart from the marked files. The new tip holds the other version: [`ff restore <path>`](restore.md) takes it instead, deleting the file when the tip doesn't have it.
+If a commit conflicts by the time you resolve, because the change was committed since the hold, resolve opens a session as usual. A conflict that can't take markers, such as a binary file or a modify/delete, keeps your version in the working copy, and the report lists it apart from the marked files. The new tip holds the other version: `ff restore <path>` takes it instead, deleting the file when the tip doesn't have it.
 
 ## Abandoning and undo
 

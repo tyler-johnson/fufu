@@ -840,6 +840,10 @@ pub struct LaidReport {
     /// Files carrying conflict markers, sorted; empty when the change
     /// applied cleanly.
     pub paths: Vec<String>,
+    /// Files that conflicted without taking markers, binary or
+    /// modify/delete, where your version stands, sorted; empty when the
+    /// change applied cleanly.
+    pub kept: Vec<String>,
     /// Conflict regions standing in the working copy; zero when the change
     /// applied cleanly.
     pub regions: usize,

@@ -148,12 +148,13 @@ pub fn run(ctx: &Ctx, abandon: bool) -> Result<()> {
                 return Ok(());
             }
             let colored = crate::pager::color_enabled();
-            if report.regions == 0 {
+            if report.regions == 0 && report.kept.is_empty() {
                 println!(
                     "the parked change applies cleanly now: resumed it on {}",
                     report.branch
                 );
-            } else {
+            }
+            if !report.paths.is_empty() {
                 println!(
                     "laid the parked change over {} with conflict markers in {} file(s):",
                     report.branch,
@@ -173,6 +174,7 @@ pub fn run(ctx: &Ctx, abandon: bool) -> Result<()> {
                     )
                 );
             }
+            render_kept(&report.kept, &report.branch, colored);
             println!("{}", crate::render::paint_dim("undo: ff undo", colored));
         }
         ResolveOutcome::Carried(report) => {

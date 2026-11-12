@@ -721,3 +721,51 @@ fn resolve_resumes_a_held_arrival_whose_tip_moved_clean() {
         "the same open commit, on the tip it was made on"
     );
 }
+
+/// A held arrival whose conflict is in a binary file: the park changed `b.bin`, and `main` advanced it under the park. Returns the held commit.
+fn held_binary_arrival() -> (Fixture, String) {
+    let fx = Fixture::new();
+    fx.write("a.txt", "base\n");
+    std::fs::write(fx.path().join("b.bin"), b"\0base\n").unwrap();
+    fx.commit("init");
+    fx.git(&["branch", "other"]);
+    ident(&fx);
+    ff_core::ops::reconcile(&fx.repo(), NOW - 10).unwrap();
+    std::fs::write(fx.path().join("b.bin"), b"\0mine\n").unwrap();
+    let away = switch_to(&fx, "other", NOW);
+    let open = away.parked.unwrap();
+    advance(&fx, "main", "b.bin", "\0theirs\n");
+    let back = switch_to(&fx, "main", NOW + 10);
+    assert!(matches!(back.arrival, ArrivalReport::Held { .. }));
+    (fx, open)
+}
+
+#[test]
+fn resolve_keeps_your_version_of_a_held_arrivals_binary_file() {
+    let (fx, _open) = held_binary_arrival();
+
+    let outcome = resolve(&fx, false, NOW + 20).unwrap();
+    let report = match outcome {
+        ResolveOutcome::Laid(r) => r,
+        other => panic!("expected Laid, got {other:?}"),
+    };
+    assert_eq!(report.kept, vec!["b.bin".to_string()]);
+    assert!(report.paths.is_empty());
+    assert_eq!(report.regions, 0);
+    assert_eq!(std::fs::read(fx.path().join("b.bin")).unwrap(), b"\0mine\n");
+    assert!(ff_core::held::of(&fx.repo(), "main").unwrap().is_none());
+    let record = {
+        let repo = fx.repo();
+        let log = ff_core::ops::OpLog::open(&repo).unwrap();
+        let op = log.get(log.tip().unwrap().unwrap()).unwrap();
+        op.record().unwrap().cloned().unwrap()
+    };
+    assert_eq!(
+        record.summary, "resolve the held arrival on main",
+        "not reported as a clean resume"
+    );
+
+    undo(&fx, NOW + 30);
+    assert!(ff_core::held::of(&fx.repo(), "main").unwrap().is_some());
+    assert_eq!(fx.git(&["status", "--porcelain=v2"]), "");
+}

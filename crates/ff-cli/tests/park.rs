@@ -245,3 +245,42 @@ fn the_doctor_lists_parks_by_their_open_refs() {
         "{doctor}"
     );
 }
+
+/// `park_and_move_under` with a binary file in place of `a.txt`.
+fn park_binary_and_move_under(fx: &Fixture) {
+    std::fs::write(fx.path().join("b.bin"), b"\0base\n").unwrap();
+    ok(ff(fx, &["commit", "-m", "binary"]));
+    ok(ff(fx, &["git", "branch", "-f", "other"]));
+    std::fs::write(fx.path().join("b.bin"), b"\0mine\n").unwrap();
+    ok(ff(fx, &["switch", "other"]));
+    std::fs::write(fx.path().join("b.bin"), b"\0theirs\n").unwrap();
+    ok(ff(fx, &["commit", "-m", "advance"]));
+    ok(ff(fx, &["git", "update-ref", "refs/heads/main", "other"]));
+}
+
+#[test]
+fn resolve_keeps_your_version_of_a_binary_arrival() {
+    let fx = repo();
+    park_binary_and_move_under(&fx);
+    assert_eq!(ff(&fx, &["switch", "main"]).status.code(), Some(3));
+
+    let text = stdout(&ok(ff(&fx, &["resolve"])));
+    assert!(!text.contains("applies cleanly"), "{text}");
+    assert!(!text.contains("conflict markers"), "{text}");
+    assert!(
+        text.contains(
+            "your version stands in 1 file that can't take markers:\n  b.bin\n    ff restore <path> takes main's version instead\n"
+        ),
+        "{text}"
+    );
+    assert_eq!(std::fs::read(fx.path().join("b.bin")).unwrap(), b"\0mine\n");
+
+    ok(ff(&fx, &["undo"]));
+    let v = json(&ok(ff(&fx, &["resolve", "--json"])));
+    assert_eq!(
+        v["data"]["laid"]["kept"],
+        serde_json::json!(["b.bin"]),
+        "{v}"
+    );
+    assert_eq!(v["data"]["laid"]["paths"], serde_json::json!([]), "{v}");
+}
