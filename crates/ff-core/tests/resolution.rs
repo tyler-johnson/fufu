@@ -2944,6 +2944,262 @@ fn a_new_file_in_a_restack_resolution_is_named_with_a_move_to_the_conflict() {
 }
 
 // ---------------------------------------------------------------------------
+// Edits outside the markers across rounds
+// ---------------------------------------------------------------------------
+
+/// The issue #24 stack: `feat1` and `feat2` each rewrite line 2 of `f.txt`,
+/// and `main` rewrote it too, so a restack shows `feat1`'s conflict and
+/// tangles at `feat2`. `feat2` also writes `feat2_other` to `other.txt` when
+/// given. Leaves the fixture on `feature`.
+fn two_round_stack(fx: &Fixture, feat2_other: Option<&str>) {
+    fx.write("f.txt", "a\nb\nc\n");
+    fx.write("other.txt", "x\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("f.txt", "a\nFEAT1\nc\n");
+    fx.commit("feat1");
+    fx.write("f.txt", "a\nFEAT2\nc\n");
+    if let Some(other) = feat2_other {
+        fx.write("other.txt", other);
+    }
+    fx.commit("feat2");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("f.txt", "a\nMAIN\nc\n");
+    fx.commit("main");
+    fx.git(&["switch", "-q", "feature"]);
+}
+
+/// Open the two-round stack's session and fix `feat1`'s region.
+fn first_round(fx: &Fixture) {
+    hold_a_restack(fx);
+    let opened = open_resolution(fx, NOW + 100);
+    assert_eq!(
+        opened.tangled.as_deref(),
+        Some("feat2"),
+        "the precondition is a tangle at feat2"
+    );
+    fix(fx, "f.txt", "a\nMAIN+FEAT1\nc\n");
+}
+
+fn read(fx: &Fixture, rel: &str) -> Option<String> {
+    std::fs::read_to_string(fx.path().join(rel)).ok()
+}
+
+#[test]
+fn an_edit_outside_the_markers_rides_a_roll_and_lands_with_the_last_round() {
+    let fx = Fixture::new();
+    ident(&fx);
+    two_round_stack(&fx, None);
+    first_round(&fx);
+    fix(&fx, "other.txt", "x\nOUTSIDE\n");
+
+    let round = rolled(&fx, NOW + 200);
+    assert_eq!(round.carried, ["other.txt"]);
+    assert_eq!(read(&fx, "other.txt").as_deref(), Some("x\nOUTSIDE\n"));
+    assert!(read(&fx, "f.txt").unwrap().contains(OPENER));
+    let repo = fx.repo();
+    assert_eq!(
+        file_in(&repo, oid(&round.at), "other.txt").as_deref(),
+        Some("x\nOUTSIDE\n"),
+        "the marker commit carries it, so the round starts clean"
+    );
+    let resolving = ff_core::held::resolving(&repo, "feature").unwrap().unwrap();
+    assert_ne!(
+        resolving.from,
+        fx.git(&["rev-parse", &format!("{}^{{tree}}", round.at)])
+            .trim(),
+        "`from` stays the chain's own tree"
+    );
+    assert_eq!(
+        fx.git(&["status", "--porcelain"]).trim(),
+        "",
+        "the round starts clean"
+    );
+
+    // Undo puts the reader's working copy back whole; redo the round.
+    undo(&fx, NOW + 300);
+    assert_eq!(read(&fx, "f.txt").as_deref(), Some("a\nMAIN+FEAT1\nc\n"));
+    assert_eq!(read(&fx, "other.txt").as_deref(), Some("x\nOUTSIDE\n"));
+    redo(&fx, NOW + 400);
+    assert!(read(&fx, "f.txt").unwrap().contains(OPENER));
+    assert_eq!(read(&fx, "other.txt").as_deref(), Some("x\nOUTSIDE\n"));
+
+    fix(&fx, "f.txt", "a\nMAIN+FEAT2\nc\n");
+    let report = resolved(&fx, NOW + 500);
+    let landed = commits_between(&repo, oid(&report.new_tip), oid(&tip(&fx, "main")));
+    assert_eq!(landed.len(), 2, "{landed:?}");
+    assert_eq!(
+        file_in(&repo, oid(&landed[0]), "other.txt").as_deref(),
+        Some("x\nOUTSIDE\n"),
+        "the edit landed in feat2"
+    );
+    assert_eq!(
+        file_in(&repo, oid(&landed[1]), "other.txt").as_deref(),
+        Some("x\n")
+    );
+    let outside = report.outside.as_ref().expect("the edit is named");
+    assert_eq!(outside.commit, landed[0]);
+    assert_eq!(outside.subject, "feat2");
+    assert_eq!(outside.paths, ["other.txt"]);
+}
+
+#[test]
+fn an_edit_outside_a_marked_files_block_survives_the_roll() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("f.txt", "head\n1\n2\n3\nA\n");
+    let c1 = fx.commit("c1");
+    fx.write("f.txt", "head\n1\n2\n3\nA\nB\n");
+    fx.commit("c2");
+    fx.write("f.txt", "head\n1\n2\n3\nX\nB\n");
+    hold_an_absorb(&fx, &c1, vec![]);
+    let opened = open_resolution(&fx, NOW + 100);
+    assert_eq!(opened.tangled.as_deref(), Some("c2"));
+
+    // The block's fix and an edit four lines above it.
+    fix(&fx, "f.txt", "HEAD\n1\n2\n3\nX\n");
+    let round = rolled(&fx, NOW + 200);
+    assert_eq!(round.fixed, ["c1"]);
+    assert_eq!(round.carried, ["f.txt"]);
+    assert_eq!(round.regions, 1);
+    let shown = read(&fx, "f.txt").unwrap();
+    assert!(
+        shown.starts_with(&format!("HEAD\n1\n2\n3\n{OPENER}")),
+        "the edit stands above c2's block: {shown}"
+    );
+    assert!(shown.contains("\"c2\""), "{shown}");
+
+    fix(&fx, "f.txt", "HEAD\n1\n2\n3\nX\nB\n");
+    let report = resolved(&fx, NOW + 300);
+    let repo = fx.repo();
+    let new_tip = oid(&report.new_tip);
+    let new_c1 = oid(&fx.git(&["rev-parse", &format!("{}^", report.new_tip)]));
+    assert_eq!(
+        file_in(&repo, new_tip, "f.txt").as_deref(),
+        Some("HEAD\n1\n2\n3\nX\nB\n")
+    );
+    assert_eq!(
+        file_in(&repo, new_c1, "f.txt").as_deref(),
+        Some("head\n1\n2\n3\nX\n")
+    );
+}
+
+#[test]
+fn a_reshown_block_comes_back_as_markers_beside_the_carried_edit() {
+    let fx = Fixture::new();
+    ident(&fx);
+    // The merge stack of `a_conflict_beneath_a_merge_is_shown_first...`, with
+    // `f3`, the last commit, also fighting trunk at the foot of `g.txt`.
+    // Fixing s1 makes the merge the next round, so f3's fix is shown again.
+    fx.write("f.txt", "one\ntwo\nthree\n");
+    fx.write("g.txt", "g1\ng2\ng3\ng4\ng5\n");
+    let _t0 = fx.commit("T0");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("a.txt", "a\n");
+    let _f1 = fx.commit("f1");
+    fx.git(&["switch", "-q", "-c", "side"]);
+    fx.write("f.txt", "one\nside\nthree\n");
+    let _s1 = fx.commit("s1");
+    fx.git(&["switch", "-q", "feature"]);
+    fx.write("b.txt", "b\n");
+    let _f2 = fx.commit("f2");
+    fx.git(&["merge", "-q", "--no-commit", "side"]);
+    fx.write("f.txt", "one\nside, merged\nthree\n");
+    let _m = fx.commit("M: merge side");
+    fx.write("g.txt", "g1\ng2\ng3\ng4\nF3\n");
+    let _f3 = fx.commit("f3");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("f.txt", "one\ntrunk\nthree\n");
+    fx.write("g.txt", "g1\ng2\ng3\ng4\nT2\n");
+    let _t2 = fx.commit("T2");
+    fx.git(&["switch", "-q", "feature"]);
+    hold_a_restack(&fx);
+
+    let opened = open_resolution(&fx, NOW + 100);
+    assert_eq!(opened.tangled, None, "the chain ran whole");
+    assert_eq!(opened.files, ["f.txt", "g.txt"]);
+    let block = read(&fx, "g.txt").unwrap();
+    assert!(block.starts_with(&format!("g1\ng2\ng3\ng4\n{OPENER}")));
+
+    fix(&fx, "f.txt", "one\ntrunk and side\nthree\n");
+    fix(&fx, "g.txt", "G1\ng2\ng3\ng4\nT2 and F3\n");
+    let round = rolled(&fx, NOW + 200);
+    assert_eq!(round.dropped, ["f3"], "{round:?}");
+    assert_eq!(round.carried, ["g.txt"]);
+    assert_eq!(
+        read(&fx, "g.txt").unwrap(),
+        block.replacen("g1", "G1", 1),
+        "f3's block is back as markers, under the carried edit"
+    );
+
+    fix(&fx, "f.txt", "one\ntrunk and side, merged\nthree\n");
+    fix(&fx, "g.txt", "G1\ng2\ng3\ng4\nT2 and F3\n");
+    let report = resolved(&fx, NOW + 300);
+    assert_eq!(
+        file_in(&fx.repo(), oid(&report.new_tip), "g.txt").as_deref(),
+        Some("G1\ng2\ng3\ng4\nT2 and F3\n")
+    );
+}
+
+#[test]
+fn a_deleted_file_and_an_added_file_ride_a_roll() {
+    let fx = Fixture::new();
+    ident(&fx);
+    two_round_stack(&fx, None);
+    first_round(&fx);
+    std::fs::remove_file(fx.path().join("other.txt")).unwrap();
+    fix(&fx, "new.txt", "new\n");
+
+    let round = rolled(&fx, NOW + 200);
+    assert_eq!(round.carried, ["new.txt", "other.txt"]);
+    assert_eq!(read(&fx, "other.txt"), None);
+    assert_eq!(read(&fx, "new.txt").as_deref(), Some("new\n"));
+
+    fix(&fx, "f.txt", "a\nMAIN+FEAT2\nc\n");
+    let report = resolved(&fx, NOW + 300);
+    let repo = fx.repo();
+    let new_tip = oid(&report.new_tip);
+    let below = oid(&fx.git(&["rev-parse", &format!("{}^", report.new_tip)]));
+    assert_eq!(file_in(&repo, new_tip, "other.txt"), None);
+    assert_eq!(file_in(&repo, new_tip, "new.txt").as_deref(), Some("new\n"));
+    assert_eq!(file_in(&repo, below, "other.txt").as_deref(), Some("x\n"));
+    assert_eq!(file_in(&repo, below, "new.txt"), None);
+}
+
+#[test]
+fn an_outside_edit_the_next_round_overlaps_refuses_and_changes_nothing() {
+    let fx = Fixture::new();
+    ident(&fx);
+    // feat2, which the first round never showed, rewrites other.txt.
+    two_round_stack(&fx, Some("y\n"));
+    first_round(&fx);
+    fix(&fx, "other.txt", "z\n");
+
+    let repo = fx.repo();
+    let before_refs = head_refs(&fx);
+    let before_ops = verb_ops(&fx);
+    let before_record = ff_core::held::resolving(&repo, "feature").unwrap();
+    assert!(before_record.is_some());
+    let err = done_call(&fx, NOW + 200).expect_err("an overlapping carry refuses");
+    assert_eq!(err.id(), "held/outside-conflict");
+    assert!(err.to_string().contains("other.txt"), "{err}");
+    assert_eq!(head_refs(&fx), before_refs, "a refusal moves no ref");
+    assert_eq!(verb_ops(&fx), before_ops, "and appends no verb op");
+    assert_eq!(
+        ff_core::held::resolving(&repo, "feature").unwrap(),
+        before_record
+    );
+    assert_eq!(read(&fx, "f.txt").as_deref(), Some("a\nMAIN+FEAT1\nc\n"));
+    assert_eq!(read(&fx, "other.txt").as_deref(), Some("z\n"));
+
+    // Without the edit, the round rolls.
+    fix(&fx, "other.txt", "x\n");
+    let round = rolled(&fx, NOW + 300);
+    assert!(round.carried.is_empty(), "{:?}", round.carried);
+    assert_eq!(read(&fx, "other.txt").as_deref(), Some("y\n"));
+}
+
+// ---------------------------------------------------------------------------
 // Conflicts that can't take markers
 // ---------------------------------------------------------------------------
 

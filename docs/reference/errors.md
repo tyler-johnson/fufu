@@ -41,7 +41,7 @@ For a structured error, the code follows its ID: `usage/*` exits 2, `held/*` exi
 
 <!-- errors:begin — generated from crates/ff-cli/src/explain/errors.toml by a test; edit there, then make docs-gen -->
 
-The table lists all 133 catalog entries with their structured-error exit codes.
+The table lists all 134 catalog entries with their structured-error exit codes.
 
 | id | exit | meaning |
 | --- | --- | --- |
@@ -73,6 +73,7 @@ The table lists all 133 catalog entries with their structured-error exit codes.
 | `held/moved` | 3 | the current rewrite no longer produces the conflicts this session was opened for |
 | `held/none` | 3 | the current branch has no held request to resolve, and no merge of its base to continue |
 | `held/op-revert` | 3 | refs no longer have the values required to invert this operation |
+| `held/outside-conflict` | 3 | edits outside the markers overlap what the next round changes |
 | `held/resolving` | 3 | a resolution session for this hold is already open |
 | `held/rewrite-conflict` | 3 | a commit could not be replayed over the requested rewrite |
 | `held/unresolved` | 3 | the resolution still has conflict markers standing |

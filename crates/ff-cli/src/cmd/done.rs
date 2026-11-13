@@ -278,6 +278,12 @@ pub fn run(ctx: &Ctx, abandon: bool, no_verify: bool) -> Result<()> {
             for subject in &report.dropped {
                 println!("    \"{subject}\" is shown again: its fix followed the new conflict");
             }
+            if !report.carried.is_empty() {
+                println!(
+                    "    kept your edits outside the markers in {} for the next round",
+                    report.carried.join(", ")
+                );
+            }
             super::resolve::render_kept_session(
                 &report.kept,
                 report.restore_from.as_deref(),

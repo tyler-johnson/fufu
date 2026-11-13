@@ -441,7 +441,39 @@ fn done_rolled_json_envelope() {
     assert_eq!(v["data"]["rolled"]["branch"], "main");
     assert_eq!(v["data"]["rolled"]["steps"], 2);
     assert_eq!(v["data"]["rolled"]["tangled"], serde_json::Value::Null);
+    assert_eq!(v["data"]["rolled"]["carried"], serde_json::json!([]));
     assert_eq!(v["data"]["undo"], "ff undo");
+}
+
+#[test]
+fn done_keeps_edits_outside_the_markers_for_the_next_round() {
+    let fx = repo();
+    tangled_session(&fx);
+    std::fs::write(fx.path().join("f.txt"), "X\n").unwrap();
+    std::fs::write(fx.path().join("notes.txt"), "notes\n").unwrap();
+    let output = ff(&fx, &["done"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains("    kept your edits outside the markers in notes.txt for the next round\n"),
+        "{text}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("notes.txt")).unwrap(),
+        "notes\n"
+    );
+
+    let fx = repo();
+    tangled_session(&fx);
+    std::fs::write(fx.path().join("f.txt"), "X\n").unwrap();
+    std::fs::write(fx.path().join("notes.txt"), "notes\n").unwrap();
+    let output = ff(&fx, &["--json", "done"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let v = json(&output);
+    assert_eq!(
+        v["data"]["rolled"]["carried"],
+        serde_json::json!(["notes.txt"])
+    );
 }
 
 /// The issue #15 stack: `A` adds `label(text)`, `B` extracts `read()` from

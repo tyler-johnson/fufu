@@ -247,11 +247,11 @@ fn finish_resolution(
     // 2. The reader's fixes, as a tree: the session branch's working copy.
     // `open_tree` composes the scan onto its base, and that is the working
     // copy's content only when the index holds that base — so the base is
-    // the session tip's tree, which is the marker commit's, equal to
-    // `chain.tree` by the check above, unless something committed on the
-    // session. A commit there is allowed as on any editing session: the
-    // attribution below reads content, not history, so committed fixes land
-    // the same way typed ones do.
+    // the session tip's tree, which is the marker commit's: `chain.tree`,
+    // with any edits outside the markers an earlier round carried, unless
+    // something committed on the session. A commit there is allowed as on
+    // any editing session: the attribution below reads content, not
+    // history, so committed fixes land the same way typed ones do.
     //
     // This is fufu's `rebase --continue`, which under git does run
     // `pre-commit`: the fixes on disk are about to become commit content, so
@@ -371,6 +371,18 @@ fn finish_resolution(
         } else {
             rewrite::chain(repo, plan.target, plan.tip, &plan.change, &kept)?
         };
+        // Edits outside every region belong to no step, so the next round's
+        // working copy carries them, and they land with the last round's.
+        let carry = rewrite::carry_outside(
+            repo,
+            &chain,
+            rolled.tree,
+            worktree_tree,
+            &attribution.outside,
+        )?;
+        if !carry.conflicts.is_empty() {
+            return Err(outside_conflict(&carry.conflicts));
+        }
         let of = match &plan.change {
             rewrite::Change::Merge { .. } => rolled.steps.len(),
             _ => rewrite::stack_size(repo, plan.target, plan.tip, &plan.change)?,
@@ -390,6 +402,7 @@ fn finish_resolution(
                 next: next_subject,
                 of,
                 worktree_tree,
+                carry,
             },
         );
     }
@@ -649,6 +662,23 @@ fn moved(branch: &str) -> Error {
     )
 }
 
+/// The `held/outside-conflict` refusal: edits outside the markers can't be carried into the next round, because the roll changed the same lines.
+fn outside_conflict(paths: &[String]) -> Error {
+    Error::coded(
+        "held/outside-conflict",
+        format!(
+            "your edits outside the markers in {} overlap what the next round changes: undo \
+             those edits, then ff done",
+            rewrite::join_paths(paths)
+        ),
+        vec![
+            "ff diff".into(),
+            "ff explain held/outside-conflict".into(),
+            "ff resolve --abandon".into(),
+        ],
+    )
+}
+
 /// The next conflict the fixes uncovered, as an index into `landed.steps`:
 /// the first step still carrying a marker once the fixes are folded in — a
 /// conflict the reader was never shown, because the run that laid the
@@ -699,13 +729,16 @@ struct Roll<'a> {
     of: usize,
     /// The working copy as this round read it, hooks run.
     worktree_tree: gix::ObjectId,
+    /// The next round's tree: `rolled`'s, with this round's edits outside
+    /// the markers carried over it.
+    carry: rewrite::Carry,
 }
 
 /// Roll the session to its next round, as one operation: the session
-/// branch's tip moves to a fresh marker commit carrying the rolled tree
-/// over the held branch's own tip, the session's record moves with it
-/// carrying the kept resolutions, the working copy takes the new markers,
-/// and HEAD stays where it is. The hold on the held branch is untouched.
+/// branch's tip moves to a fresh marker commit carrying the rolled tree,
+/// edits outside the markers carried over it, on the held branch's own
+/// tip, the session's record moves with it carrying the kept resolutions,
+/// the working copy takes the new markers, and HEAD stays where it is. The hold on the held branch is untouched.
 /// Undo lands the working copy on the predecessor capture's tree, which is
 /// the reader's fix, and puts both records back.
 fn roll_round(
@@ -725,6 +758,7 @@ fn roll_round(
         next,
         of,
         worktree_tree,
+        carry,
     } = roll;
     let now = rec.now;
     let hold = &resolve.hold;
@@ -739,7 +773,7 @@ fn roll_round(
     let sig = refs::user_signature(repo, now)?;
     let new_marker = stash::write_commit(
         repo,
-        rolled.tree,
+        carry.tree,
         vec![parent],
         &sig,
         format!("resolving the held {verb} on {branch}"),
@@ -798,15 +832,21 @@ fn roll_round(
         old: Some(resolve.clone()),
         new: Some(new_resolve.clone()),
     });
-    let pins = [new_marker, rolled.tree, worktree_tree, session_tip];
+    let pins = [
+        new_marker,
+        rolled.tree,
+        carry.tree,
+        worktree_tree,
+        session_tip,
+    ];
     verb::append_op(
         repo,
         OpKind::Op,
         verb::VerbOp {
             record,
             planned,
-            tree: rolled.tree,
-            index_tree: rolled.tree,
+            tree: carry.tree,
+            index_tree: carry.tree,
             branch: session.to_string(),
             base: crate::snapshot::chain::base_commit(&head)?,
             session: rec.prov.session.clone(),
@@ -844,8 +884,8 @@ fn roll_round(
     held::set_resolving(repo, branch, Some(new_resolve))?;
 
     // 5. Index and working copy: the new markers, over the fix as it stood.
-    crate::index::write_index_for_tree(repo, rolled.tree)?;
-    crate::worktree::apply_tree_transition(repo, worktree_tree, rolled.tree, &|_| true)?;
+    crate::index::write_index_for_tree(repo, carry.tree)?;
+    crate::worktree::apply_tree_transition(repo, worktree_tree, carry.tree, &|_| true)?;
 
     // 6. Derived state: the working copy is clean at the new tip, so the
     // session's open ref describes nothing now — the fix it stated stays
@@ -881,6 +921,7 @@ fn roll_round(
         dropped,
         files,
         kept: kept_files,
+        carried: carry.carried,
         restore_from: held::restore_from(repo, hold),
         regions: regions.len(),
         steps: rolled.steps.len(),

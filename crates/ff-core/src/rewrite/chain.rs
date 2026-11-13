@@ -869,31 +869,9 @@ pub fn attribute(
             }
             continue;
         }
-        let hunks = line_hunks(&before, &after);
-        let mut ranges: Vec<std::ops::Range<usize>> = Vec::new();
+        let split = Split::new(&before, &after, &found);
 
-        for block in &found {
-            // Expand the block's range to absorb any hunk it overlaps, until
-            // it stops growing: an edit that spilled past a marker line is
-            // still that region's edit. A hunk already inside the range
-            // widens it not at all, so the loop only runs while the range
-            // actually grows — that is what makes it terminate.
-            let mut range = block.lines.clone();
-            loop {
-                let mut next = range.clone();
-                for (b, _) in &hunks {
-                    if b.start < next.end && next.start < b.end {
-                        next.start = next.start.min(b.start);
-                        next.end = next.end.max(b.end);
-                    }
-                }
-                if next == range {
-                    break;
-                }
-                range = next;
-            }
-            ranges.push(range.clone());
-
+        for (block, range) in found.iter().zip(&split.ranges) {
             // Map the expanded range into the resolved blob. A hunk lying
             // entirely before the range shifts it by its net delta; a hunk
             // the expansion absorbed shifts the range's far end by its net
@@ -901,7 +879,7 @@ pub fn attribute(
             // valid half-open line span within `after`.
             let mut delta_before = 0i64;
             let mut delta_inside = 0i64;
-            for (b, a) in &hunks {
+            for (b, a) in &split.hunks {
                 let delta = (a.end as i64) - (a.start as i64) - (b.end as i64) + (b.start as i64);
                 if b.end <= range.start {
                     delta_before += delta;
@@ -938,19 +916,7 @@ pub fn attribute(
             }
         }
 
-        // A hunk no region's expanded range took in is an edit outside every
-        // region. A pure insertion touching a range's end is the region's,
-        // the same overlap test the expansion uses with its ends widened.
-        let inside = |b: &std::ops::Range<usize>| {
-            ranges.iter().any(|r| {
-                if b.start == b.end {
-                    r.start <= b.start && b.start <= r.end
-                } else {
-                    b.start < r.end && r.start < b.end
-                }
-            })
-        };
-        if hunks.iter().any(|(b, _)| !inside(b)) {
+        if split.hunks.iter().any(|(b, _)| !split.inside(b)) {
             outside.push(path.clone());
         }
     }
@@ -971,6 +937,167 @@ pub fn attribute(
         unresolved,
         outside,
     })
+}
+
+/// The next round's tree: the rolled chain's tree with the reader's edits outside every region carried over it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Carry {
+    pub tree: gix::ObjectId,
+    /// The outside paths carried, sorted.
+    pub carried: Vec<String>,
+    /// Paths where a carried edit overlaps what the roll changed, sorted. When any stands, `tree` is `rolled` and nothing was carried.
+    pub conflicts: Vec<String>,
+}
+
+/// Carry the edits outside every region from `resolved`, the reader's working tree over `chain.tree`, into `rolled`, the next round's tree.
+///
+/// A path with no block in `chain.tree` is carried whole: added, changed, or deleted. A marked file carries only its hunks outside every region, the same split `attribute` makes, so a fix inside a region the roll dropped comes back as markers rather than as the reader's text. Each is a three-way merge with `chain.tree` as the base and `rolled` as ours, so a path the roll did not touch takes the reader's version and one it did merges with it.
+pub fn carry_outside(
+    repo: &gix::Repository,
+    chain: &Chain,
+    rolled: gix::ObjectId,
+    resolved: gix::ObjectId,
+    outside: &[String],
+) -> Result<Carry> {
+    let untouched = Carry {
+        tree: rolled,
+        carried: Vec::new(),
+        conflicts: Vec::new(),
+    };
+    if outside.is_empty() {
+        return Ok(untouched);
+    }
+    let resolved_tree = repo.find_tree(resolved).map_err(Error::repo)?;
+    let mut editor = repo.edit_tree(chain.tree).map_err(Error::repo)?;
+    for path in outside {
+        let entry = resolved_tree
+            .lookup_entry_by_path(path)
+            .map_err(Error::repo)?
+            .map(|e| (e.mode().kind(), e.id().detach()));
+        let marked = match (
+            blob_of(repo, chain.tree, path)?,
+            blob_of(repo, resolved, path)?,
+        ) {
+            (Some(before), Some(after)) => {
+                let (found, _tangled) = blocks(&before);
+                (!found.is_empty())
+                    .then(|| Split::new(&before, &after, &found).outside_only(&before, &after))
+            }
+            _ => None,
+        };
+        match (marked, entry) {
+            (Some(text), Some((kind, _))) => {
+                let blob = repo
+                    .write_object(gix::objs::Blob {
+                        data: text.into_bytes(),
+                    })
+                    .map_err(Error::repo)?
+                    .detach();
+                editor
+                    .upsert(path.as_str(), kind, blob)
+                    .map_err(Error::repo)?;
+            }
+            (_, Some((kind, id))) => {
+                editor
+                    .upsert(path.as_str(), kind, id)
+                    .map_err(Error::repo)?;
+            }
+            (_, None) => {
+                editor.remove(path.as_str()).map_err(Error::repo)?;
+            }
+        }
+    }
+    let theirs = editor.write().map_err(Error::repo)?.detach();
+    if theirs == chain.tree {
+        return Ok(untouched);
+    }
+    let options = repo.tree_merge_options().map_err(Error::repo)?;
+    let mut outcome = repo
+        .merge_trees(chain.tree, rolled, theirs, Default::default(), options)
+        .map_err(Error::repo)?;
+    let conflicts = crate::futures::unresolved(&outcome);
+    if !conflicts.is_empty() {
+        return Ok(Carry {
+            conflicts,
+            ..untouched
+        });
+    }
+    let tree = outcome.tree.write().map_err(Error::repo)?.detach();
+    Ok(Carry {
+        tree,
+        carried: outside.to_vec(),
+        conflicts: Vec::new(),
+    })
+}
+
+/// A marked text's line hunks, sorted into edits inside a region and edits outside every region: what `attribute` reads a resolution from, and what `carry_outside` carries into the next round.
+struct Split {
+    hunks: Vec<(std::ops::Range<usize>, std::ops::Range<usize>)>,
+    /// Each block's line range in the marked text, widened to absorb every
+    /// hunk that overlaps it, in block order.
+    ranges: Vec<std::ops::Range<usize>>,
+}
+
+impl Split {
+    fn new(before: &str, after: &str, found: &[Block]) -> Self {
+        let hunks = line_hunks(before, after);
+        let ranges = found
+            .iter()
+            .map(|block| {
+                // Expand the block's range to absorb any hunk it overlaps,
+                // until it stops growing: an edit that spilled past a marker
+                // line is still that region's edit. A hunk already inside the
+                // range widens it not at all, so the loop only runs while the
+                // range actually grows — that is what makes it terminate.
+                let mut range = block.lines.clone();
+                loop {
+                    let mut next = range.clone();
+                    for (b, _) in &hunks {
+                        if b.start < next.end && next.start < b.end {
+                            next.start = next.start.min(b.start);
+                            next.end = next.end.max(b.end);
+                        }
+                    }
+                    if next == range {
+                        break;
+                    }
+                    range = next;
+                }
+                range
+            })
+            .collect();
+        Split { hunks, ranges }
+    }
+
+    /// Whether a hunk's removed range belongs to a region. A hunk no region's
+    /// expanded range took in is an edit outside every region. A pure
+    /// insertion touching a range's end is the region's, the same overlap
+    /// test the expansion uses with its ends widened.
+    fn inside(&self, b: &std::ops::Range<usize>) -> bool {
+        self.ranges.iter().any(|r| {
+            if b.start == b.end {
+                r.start <= b.start && b.start <= r.end
+            } else {
+                b.start < r.end && r.start < b.end
+            }
+        })
+    }
+
+    /// `before` with only the hunks outside every region applied: the
+    /// reader's edits around the markers, the markers themselves untouched.
+    fn outside_only(&self, before: &str, after: &str) -> String {
+        let before_lines: Vec<&str> = before.split_inclusive('\n').collect();
+        let after_lines: Vec<&str> = after.split_inclusive('\n').collect();
+        let mut out = String::with_capacity(after.len());
+        let mut at = 0;
+        for (b, a) in self.hunks.iter().filter(|(b, _)| !self.inside(b)) {
+            out.extend(before_lines[at..b.start].iter().copied());
+            out.extend(after_lines[a.clone()].iter().copied());
+            at = b.end;
+        }
+        out.extend(before_lines[at..].iter().copied());
+        out
+    }
 }
 
 /// The line-diff hunks between two texts: each change as the half-open line

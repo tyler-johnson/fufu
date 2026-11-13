@@ -18,7 +18,7 @@ On a resolution session, `ff done --abandon` keeps the hold on the original bran
 
 Fix the displayed conflicts and run `ff done`. If more conflicts appear, repeat on the same session. Each new round keeps applicable fixes, names any that need revisiting, updates the working copy with the next conflicts, and exits 3. The original branch updates when all conflicts are resolved. One `ff undo` reverses a round's advance and restores the fixes you had made before it.
 
-When edits outside the markers land in a later commit than the conflicts they accompany, the report names that commit and, where one earlier commit plainly owns a file's edits, prints the `ff absorb` line that moves them there.
+Edits outside the markers land in the last replayed commit. When `ff done` advances to another round instead, they stay in the working copy for the next round, and the report names their files; if a commit replayed for the new round changes the same lines, `ff done` refuses with `held/outside-conflict` and leaves the session as it was. When edits outside the markers land in a later commit than the conflicts they accompany, the report names that commit and, where one earlier commit plainly owns a file's edits, prints the `ff absorb` line that moves them there.
 
 Markers left in the displayed conflicts are refused with `held/unresolved`; finish editing them and retry. A conflicting replay when finishing an editing session leaves that session open, records a hold, and exits 3. Captures and metadata may still be written.
 

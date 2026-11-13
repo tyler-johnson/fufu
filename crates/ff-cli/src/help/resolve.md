@@ -15,7 +15,7 @@ ff resolve --abandon            # Alternatively, drop the pending rewrite
 
 A resolution session is an automatically named branch containing the conflict markers. The hold remains on the original branch, where your previous open work is parked. Switching away parks fixes in progress; switching back resumes them. Done applies the fixes and returns in one operation when all conflicts are resolved. If the fixes uncover more conflicts, it keeps the session open for another round, with exit 3.
 
-The working copy is the rewrite's final tree, later replayed commits included. Each fix inside a marker block goes to the commit its label names. An edit outside every marker block lands in the last replayed commit, and `ff done` names that commit.
+The working copy is the rewrite's final tree, later replayed commits included. Each fix inside a marker block goes to the commit its label names. An edit outside every marker block lands in the last replayed commit, and `ff done` names that commit. When `ff done` advances to another round, such edits stay in the working copy for the next round.
 
 A conflict that can't take markers, such as a binary file or a modify/delete, keeps your version in the session: the replayed commit's, or your branch's for a merge. Later commits replay over it, the report lists it apart from the marked files, and `ff done` lands it as it stands. For a restack or merge, `ff restore <path> --from <base>` takes the base's version instead, deleting the file when the base doesn't have it. A session whose only conflicts are of this kind has no markers to fix: run `ff done` when the kept files are what you want.
 

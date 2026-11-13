@@ -518,6 +518,12 @@ detail = "Edit the named files on the resolution session branch and run ff done 
 exits = ["ff status", "ff done", "ff resolve --abandon"]
 
 [[entry]]
+id = "held/outside-conflict"
+summary = "edits outside the markers overlap what the next round changes"
+detail = "When your fixes uncover another conflict, ff done rolls the session to a new round and carries your edits outside the markers into its working copy. The named files have such edits on lines that the commits replayed for the new round also change, so they cannot be carried. The session, its round, and your working copy stand as they were; a pre-command capture may already have recorded your edits. Inspect the edits with ff diff, undo the ones outside the markers in the named files, and run ff done again; make them again once the new round is shown or after the session lands. ff resolve --abandon drops the session and the hold both."
+exits = ["ff diff", "ff done", "ff resolve --abandon"]
+
+[[entry]]
 id = "held/unsupported"
 summary = "the current open change prevents this hold from being resolved"
 detail = "Preserve or commit the blocking open work, then retry resolution. For a path-filtered absorb or lift, the error names changed paths outside the saved selection. For a parked arrival, the destination already has an open change, and the held arrival needs it clean. Switching away and back merely parks and resumes that change; it does not clear the blocker. You can instead abandon the hold and reissue the intended operation with an appropriate selection. Abandoning a held arrival drops that saved arrival, so retain its snapshot if its content is wanted."

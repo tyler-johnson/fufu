@@ -216,7 +216,10 @@ pub struct Resolve {
     pub hold: Held,
     /// The marker tree this session materialized, full sha. `ff done` re-runs
     /// the chain and refuses if it does not arrive here again — the same
-    /// self-invalidating key the futures cache is built on.
+    /// self-invalidating key the futures cache is built on. A later round's
+    /// marker commit also carries the edits outside the markers from the
+    /// round before, which no re-run produces, so its tree can differ from
+    /// this one by those edits.
     pub from: String,
     /// Each step's subject, oldest-first, so a report can name what landed
     /// without replaying to find out.

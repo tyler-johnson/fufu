@@ -957,6 +957,8 @@ pub struct RolledReport {
     pub files: Vec<String>,
     /// Files in the new round where a conflict took no markers and your version stands, sorted.
     pub kept: Vec<String>,
+    /// Paths you edited outside the markers, carried into the new round's working copy, sorted.
+    pub carried: Vec<String>,
     /// The revision holding the other side's version of the kept files, as in [`ResolveReport::restore_from`].
     pub restore_from: Option<String>,
     /// How many marked regions are waiting.
