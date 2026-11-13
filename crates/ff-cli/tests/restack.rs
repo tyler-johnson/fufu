@@ -230,6 +230,38 @@ fn restack_onto_records_the_parent() {
     );
 }
 
+/// gh #22: `parent` forked from trunk below where `child` did, and only
+/// `child1` is the branch's own.
+#[test]
+fn restack_onto_a_base_that_forked_earlier_replays_only_the_branchs_own_commits() {
+    let fx = repo();
+    fx.write("f", "base\n");
+    fx.commit("base");
+    fx.git(&["branch", "parent"]);
+    fx.git(&["switch", "-q", "parent"]);
+    fx.write("p", "parent1\n");
+    fx.commit("parent1");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("m", "main1\n");
+    fx.commit("main1");
+    fx.write("m", "main1\nmain2\n");
+    fx.commit("main2");
+    fx.git(&["switch", "-q", "-c", "child"]);
+    fx.write("x", "child1\n");
+    fx.commit("child1");
+
+    let output = ff(&fx, &["restack", "--onto", "parent"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("re-aimed child at parent"), "{text}");
+    assert!(text.contains("replayed 1 commit(s) onto parent"), "{text}");
+    assert!(!text.contains("replaced"), "main is not replaced: {text}");
+    assert_eq!(
+        fx.git(&["log", "--format=%s", "parent..child"]).trim(),
+        "child1"
+    );
+}
+
 #[test]
 fn restack_onto_self_is_exit_2() {
     let fx = repo();

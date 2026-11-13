@@ -467,7 +467,7 @@ fn merge_door(
         return Err(plain());
     };
     let onto = crate::restack::onto_from(repo, &pull_ref)?;
-    let range = match crate::restack::measure_range(repo, &branch, tip, &onto) {
+    let range = match crate::restack::measure_range(repo, &branch, tip, &onto, None) {
         Ok(range) => range,
         Err(err) if err.id() == "restack/unrelated" => {
             return Err(nothing_held(

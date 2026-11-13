@@ -1877,6 +1877,161 @@ fn onto_a_target_that_never_held_the_branch_carries_everything() {
     assert_eq!(rev(&fx, "feature~3"), rev(&fx, "release"));
 }
 
+// ---- The range under `--onto`: the base it leaves bounds it too ----
+
+/// gh #22: `parent` forked from trunk below where `child` did.
+///
+/// ```text
+/// base ─ main1 ─ main2 ─ child1     (child, cut with git from main)
+///    └─ parent1                     (parent)
+/// ```
+///
+/// `child1` writes `x.txt`, and `parent_x`, when given, is what `parent1`
+/// writes there too. Leaves the fixture standing on
+/// `child`. Returns `(main1, main2, child1)`.
+fn earlier_fork(fx: &Fixture, parent_x: Option<&str>) -> (String, String, String) {
+    fx.write("f.txt", "base\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "parent"]);
+    fx.write("p.txt", "parent1\n");
+    if let Some(x) = parent_x {
+        fx.write("x.txt", x);
+    }
+    fx.commit("parent1");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("m.txt", "main1\n");
+    let main1 = fx.commit("main1");
+    fx.write("m.txt", "main1\nmain2\n");
+    let main2 = fx.commit("main2");
+    fx.git(&["switch", "-q", "-c", "child"]);
+    fx.write("x.txt", "child1\n");
+    let child1 = fx.commit("child1");
+    (main1, main2, child1)
+}
+
+/// The subjects of `range`, newest first.
+fn range_subjects(fx: &Fixture, range: &str) -> Vec<String> {
+    fx.git(&["log", "--format=%s", range])
+        .lines()
+        .map(str::to_string)
+        .collect()
+}
+
+#[test]
+fn onto_a_base_that_forked_earlier_replays_only_the_branchs_own_commits() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (main1, main2, _child1) = earlier_fork(&fx, None);
+
+    let report = landed(restack_call(&fx, Some("child"), Some("parent"), NOW).0);
+
+    assert!(report.reaimed);
+    assert_eq!(report.replayed, 1, "only child1 is child's own");
+    assert!(
+        report.diverged.is_empty(),
+        "main is not replaced: {:?}",
+        report.diverged
+    );
+    assert_eq!(range_subjects(&fx, "parent..child"), vec!["child1"]);
+    assert_eq!(rev(&fx, "child^"), rev(&fx, "parent"));
+    assert!(!is_ancestor(&fx, &main1, "child"));
+    assert!(!is_ancestor(&fx, &main2, "child"));
+    assert_eq!(rev(&fx, "main"), main2, "main stays where it was");
+    assert_eq!(
+        ff_core::branchmeta::read(&fx.repo(), "child")
+            .unwrap()
+            .parent
+            .as_deref(),
+        Some("parent")
+    );
+}
+
+/// A branch with no commit above the base it is leaving moves to the target
+/// with nothing to replay.
+#[test]
+fn onto_from_a_branch_with_nothing_of_its_own_moves_it_to_the_target() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (main1, _main2, _child1) = earlier_fork(&fx, None);
+    fx.git(&["switch", "-q", "main"]);
+    fx.git(&["branch", "-q", "-D", "child"]);
+    fx.git(&["switch", "-q", "-c", "child"]);
+
+    let report = landed(restack_call(&fx, Some("child"), Some("parent"), NOW).0);
+
+    assert!(report.reaimed);
+    assert!(report.fast_forward, "{report:?}");
+    assert_eq!(report.replayed, 0);
+    assert_eq!(rev(&fx, "child"), rev(&fx, "parent"));
+    assert!(!is_ancestor(&fx, &main1, "child"));
+}
+
+/// The issue's shape held on `child1`'s conflict with `parent1`, then
+/// resolved: the session, the replan, and the landing all measure the range
+/// against `main` too, so only `child1`'s change lands.
+#[test]
+fn a_held_re_aim_onto_a_base_that_forked_earlier_lands_only_the_branchs_own_commits() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (main1, main2, child1) = earlier_fork(&fx, Some("parent1\n"));
+
+    let (outcome, _ctx) = restack_call(&fx, Some("child"), Some("parent"), NOW);
+    let held = match outcome {
+        RestackOutcome::Held(r) => r,
+        other => panic!("child1 conflicts with parent1 and holds, got {other:?}"),
+    };
+    assert_eq!(held.of, 1, "the hold counts only child1");
+    assert_eq!(held.paths, vec!["x.txt".to_string()]);
+    assert_eq!(
+        ff_core::branchmeta::read(&fx.repo(), "child")
+            .unwrap()
+            .parent,
+        None,
+        "the parent is recorded when the re-aim lands, not when it holds"
+    );
+
+    let repo = fx.repo();
+    let hold = held::of(&repo, "child").unwrap().expect("child holds");
+    assert_eq!(
+        held::replan(&repo, &hold).unwrap().target.to_string(),
+        child1,
+        "the replan starts where the verb did"
+    );
+    let (outcome, _ctx) =
+        ff_core::resolve::resolve(&repo, false, &prov(), Some(NOW + 1), vec![]).unwrap();
+    assert!(
+        matches!(outcome, ff_core::ResolveOutcome::Opened(_)),
+        "the resolution opens a session, got {outcome:?}"
+    );
+    fx.write("x.txt", "resolved\n");
+    let (outcome, _ctx) = ff_core::done::done(
+        &repo,
+        false,
+        ff_core::Verify::Run,
+        &prov(),
+        Some(NOW + 2),
+        vec![],
+    )
+    .unwrap();
+    match outcome {
+        ff_core::DoneOutcome::Resolved(report) => assert_eq!(report.branch, "child"),
+        other => panic!("the resolution must land, got {other:?}"),
+    }
+
+    assert_eq!(range_subjects(&fx, "parent..child"), vec!["child1"]);
+    assert_eq!(rev(&fx, "child^"), rev(&fx, "parent"));
+    assert_eq!(fx.git(&["show", "child:x.txt"]), "resolved\n");
+    assert!(!is_ancestor(&fx, &main1, "child"));
+    assert!(!is_ancestor(&fx, &main2, "child"));
+    assert_eq!(
+        ff_core::branchmeta::read(&fx.repo(), "child")
+            .unwrap()
+            .parent
+            .as_deref(),
+        Some("parent")
+    );
+}
+
 /// The parents of a commit, in order.
 fn parents_of(fx: &Fixture, commit: &str) -> Vec<String> {
     fx.git(&["rev-list", "--parents", "-n1", commit])

@@ -1203,7 +1203,7 @@ fn refused_before_planning(
     if let Some(tip) = overlay.tip(&base.full) {
         base.tip = tip;
     }
-    let range = match restack::measure_range(repo, branch, branch_tip, &base) {
+    let range = match restack::measure_range(repo, branch, branch_tip, &base, None) {
         Ok(range) => range,
         Err(err) if err.id() == "restack/unrelated" => return Ok(Some(SkipReason::Unrelated)),
         Err(err) => return Err(err),

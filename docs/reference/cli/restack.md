@@ -79,6 +79,6 @@ A held restack or merge is dropped when `--onto` chooses another base, cleared b
 
 ## Replay selection and report
 
-The replay carries the branch's own commits. A source change ID already present on the target is dropped as superseded, without merging its old content. For commits without stored change IDs, the fork point uses the target's reflog to exclude stale history, including when `--onto` selects a new target.
+The replay carries the branch's own commits. Under `--onto`, those are the commits above its current base, as `git rebase --onto <new-base> <current-base>` takes them; a branch with none moves to the new base without a replay. A source change ID already present on the target is dropped as superseded, without merging its old content. For commits without stored change IDs, the fork point uses the target's reflog to exclude stale history, including when `--onto` selects a new target.
 
 A branch inside the replay range with no commits of its own stays put and is named. Output lists what followed, held, and was skipped; JSON carries the dependent-branch results in `cascade`.

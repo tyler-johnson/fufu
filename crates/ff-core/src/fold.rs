@@ -250,16 +250,18 @@ fn plan_fold(
     held::refuse_if_resolving(repo, &target)?;
 
     // 8. The replay, as a restack of the source onto the target would plan
-    // it. The aim is settled: the target is a branch a person named, and
-    // never the source's own shared copy, since that lives under
-    // `refs/remotes/` and was refused above.
-    let plan = restack::plan_restack(
+    // it, except that it carries everything the target lacks, including
+    // what sits below the source's own base. The aim is settled: the target
+    // is a branch a person named, and never the source's own shared copy,
+    // since that lives under `refs/remotes/` and was refused above.
+    let plan = restack::plan_restack_owning(
         repo,
         Some(source.clone()),
         Some(onto.full.clone()),
         now,
         &rewrite::Decided::none(),
         Aim::Settled,
+        restack::Own::AboveTarget,
         &Overlay::default(),
     )?;
 
