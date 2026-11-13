@@ -46,7 +46,7 @@ struct FoldPlan {
     source_tip: gix::ObjectId,
     onto: Onto,
     /// Where the target lands: the replay's new tip, or the source's own
-    /// tip when the target's history already held everything below it.
+    /// tip when its commits above trunk already sat directly on the target.
     new_tip: gix::ObjectId,
     rewrites: Vec<rewrite::Rewrite>,
     dropped: Vec<rewrite::Dropped>,
@@ -250,18 +250,19 @@ fn plan_fold(
     held::refuse_if_resolving(repo, &target)?;
 
     // 8. The replay, as a restack of the source onto the target would plan
-    // it, except that it carries everything the target lacks, including
-    // what sits below the source's own base. The aim is settled: the target
-    // is a branch a person named, and never the source's own shared copy,
-    // since that lives under `refs/remotes/` and was refused above.
-    let plan = restack::plan_restack_owning(
+    // it, bounded by trunk rather than by the source's own base: an
+    // unlanded parent's commits come along, and trunk work the target lacks
+    // stays out. The aim is settled: the target is a branch a person named,
+    // and never the source's own shared copy, since that lives under
+    // `refs/remotes/` and was refused above.
+    let plan = restack::plan_restack_above(
         repo,
         Some(source.clone()),
         Some(onto.full.clone()),
         now,
         &rewrite::Decided::none(),
         Aim::Settled,
-        restack::Own::AboveTarget,
+        restack::OwnAbove::Trunk,
         &Overlay::default(),
     )?;
 
@@ -292,10 +293,14 @@ fn plan_fold(
                 vec![format!("ff restack --onto {target}"), "ff status".into()],
             ));
         }
-        // The target's history already holds everything below the source:
-        // the target moves to the source's tip, and nothing is rewritten.
+        // The source's commits above trunk already sit directly on the
+        // target: the target moves to the source's tip, and nothing is
+        // rewritten.
         RestackPlan::Unchanged { .. } => {}
         RestackPlan::Replay(replay) if replay.new_tip == source_tip => {}
+        // Otherwise the target lands on the replay's tip. A source with
+        // nothing above trunk plans a move to the target's own tip, and the
+        // target stays where it is.
         RestackPlan::Replay(replay) => {
             new_tip = replay.new_tip;
             rewrites = replay.rewrites;

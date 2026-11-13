@@ -52,13 +52,13 @@ Options:
 
 ## Target and replay rules
 
-Fold replays commits and advances the target without adding a merge commit. The source's timeline pointer moves to trash and its tip remains pinned by the operation. If the source is already on or ahead of the target's tip, no replay is needed.
+Fold replays commits and advances the target without adding a merge commit. The source's timeline pointer moves to trash and its tip remains pinned by the operation. If the source's commits that are not on trunk already sit directly on the target's tip, no replay is needed. A source with no such commits leaves the target where it is.
 
 Trunk cannot be folded, a branch cannot target itself, and the target must be local. A target checked out elsewhere requires `--stay`.
 
 ## Conflicts and dependent branches
 
-The source's commits replay from their fork point with the target, followed by its open change. A conflicting primary replay refuses to land. Use [`ff restack --onto <target>`](restack.md) to record that replay as a held rewrite, then [`ff resolve`](resolve.md) and finish it before folding again. Pre-operation capture can still occur. A held restack or merge on the source is dropped with the fold and named; a held absorb, lift, done, or parked-change arrival refuses the fold.
+The source's commits that are not on trunk replay, followed by its open change. Those of a parent branch that has not landed come along; trunk commits the target lacks, such as unreleased work when the target is a release branch, stay out. Folding into trunk, or into the source's own base, replays everything the target lacks. A conflicting primary replay refuses to land. Use [`ff restack --onto <target>`](restack.md) to record that replay as a held rewrite, then [`ff resolve`](resolve.md) and finish it before folding again. For a source stacked on a parent that has not landed, that restack replays only the source's own commits and leaves the parent's out, so fold the parent first. Pre-operation capture can still occur. A held restack or merge on the source is dropped with the fold and named; a held absorb, lift, done, or parked-change arrival refuses the fold.
 
 Dependents replay parent before child and record the target as their new base. A conflicting dependent holds in place, leaving branches above it alone. Branches checked out elsewhere or already held are skipped and named. The exit is 3 if a dependent holds. JSON reports these results in `cascade`.
 

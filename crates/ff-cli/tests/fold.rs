@@ -261,6 +261,148 @@ fn fold_into_a_named_target_leaves_trunk_alone() {
     assert!(!branch_exists(&fx, "feature"));
 }
 
+/// `release` cut from trunk at `base`, with trunk moving on to `main1` and
+/// `main2` and nothing of `release`'s own. HEAD is left on `main`.
+fn release_behind_trunk(fx: &Fixture) {
+    fx.write("f.txt", "base\n");
+    fx.commit("base");
+    fx.git(&["branch", "release"]);
+    fx.write("m.txt", "main1\n");
+    fx.commit("main1");
+    fx.write("m.txt", "main1\nmain2\n");
+    fx.commit("main2");
+}
+
+/// The backport: a fix cut from trunk folds into a release branch that sits
+/// below it, and trunk's unreleased work stays out of the release.
+#[test]
+fn fold_into_a_target_beneath_the_source_lands_only_its_own_commits() {
+    let fx = repo();
+    release_behind_trunk(&fx);
+    let main = tip(&fx, "main");
+    fx.git(&["switch", "-q", "-c", "fix"]);
+    fx.write("y.txt", "fix1\n");
+    fx.commit("fix1");
+
+    let output = ff(&fx, &["fold", "release"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("replayed 1 commit(s) onto release"), "{text}");
+    assert!(
+        text.contains("release moved ahead by 1 commit(s)"),
+        "{text}"
+    );
+    assert!(text.contains("deleted fix"), "{text}");
+    assert!(text.contains("now on release"), "{text}");
+    assert!(!text.contains("replaced"), "main is not replaced: {text}");
+    assert_eq!(subjects(&fx, "release"), ["fix1", "base"]);
+    assert_eq!(tip(&fx, "main"), main, "trunk did not move");
+    assert_eq!(head_branch(&fx), "release");
+    assert!(!fx.path().join("m.txt").exists(), "trunk's file stays out");
+}
+
+/// gh #22's shape: `parent` forked from trunk below where the source did,
+/// with a commit of its own, and only the source's own commit lands on it.
+#[test]
+fn fold_into_a_target_that_forked_earlier_lands_only_the_sources_own_commits() {
+    let fx = repo();
+    fx.write("f.txt", "base\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "parent"]);
+    fx.write("p.txt", "parent1\n");
+    fx.commit("parent1");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("m.txt", "main1\n");
+    fx.commit("main1");
+    fx.write("m.txt", "main1\nmain2\n");
+    fx.commit("main2");
+    fx.git(&["switch", "-q", "-c", "child"]);
+    fx.write("x.txt", "child1\n");
+    fx.commit("child1");
+
+    let output = ff(&fx, &["fold", "parent"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("replayed 1 commit(s) onto parent"), "{text}");
+    assert!(text.contains("parent moved ahead by 1 commit(s)"), "{text}");
+    assert_eq!(subjects(&fx, "parent"), ["child1", "parent1", "base"]);
+    assert_eq!(head_branch(&fx), "parent");
+}
+
+/// A source with nothing above its own base folds into a branch that is not
+/// that base: the target does not move, and the report says so.
+#[test]
+fn fold_of_a_source_with_nothing_of_its_own_leaves_the_target_where_it_was() {
+    let fx = repo();
+    release_behind_trunk(&fx);
+    let release = tip(&fx, "release");
+    fx.git(&["switch", "-q", "-c", "empty"]);
+
+    let output = ff(&fx, &["fold", "release"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(
+        text.contains("release did not move: empty had nothing of its own"),
+        "{text}"
+    );
+    assert!(!text.contains("replayed"), "{text}");
+    assert_eq!(tip(&fx, "release"), release);
+    assert!(!branch_exists(&fx, "empty"));
+    assert_eq!(head_branch(&fx), "release");
+}
+
+/// `featA` with `a1` cut from `main`, and `child` with `c1` stacked on it,
+/// its parent recorded. HEAD is left on `child`.
+fn stacked_on_feat_a(fx: &Fixture) {
+    fx.git(&["switch", "-q", "-c", "featA"]);
+    fx.write("a.txt", "a1\n");
+    fx.commit("a1");
+    let start = ff(fx, &["start", "featA", "-b", "child"]);
+    assert!(start.status.success(), "{}", out(&start));
+    fx.write("c.txt", "c1\n");
+    fx.commit("c1");
+    assert_eq!(meta(fx, "child")["parent"], "featA");
+}
+
+/// A source stacked on an unlanded parent folds into trunk with the
+/// parent's commits: trunk lacks them, and they are not trunk's.
+#[test]
+fn fold_into_trunk_from_a_stacked_source_lands_the_parents_commits_too() {
+    let fx = repo();
+    fx.write("f.txt", "base\n");
+    fx.commit("base");
+    stacked_on_feat_a(&fx);
+
+    let output = ff(&fx, &["fold"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("main moved ahead by 2 commit(s)"), "{text}");
+    assert_eq!(subjects(&fx, "main"), ["c1", "a1", "base"]);
+    assert_eq!(head_branch(&fx), "main");
+}
+
+/// The same stack folded into a release branch cut below trunk: the
+/// parent's commits come along, and trunk's stay out.
+#[test]
+fn fold_into_a_release_from_a_stacked_source_lands_the_parents_commits_but_not_trunks() {
+    let fx = repo();
+    release_behind_trunk(&fx);
+    let main = tip(&fx, "main");
+    stacked_on_feat_a(&fx);
+
+    let output = ff(&fx, &["fold", "release"]);
+    assert!(output.status.success(), "{}", out(&output));
+    let text = stdout(&output);
+    assert!(text.contains("replayed 2 commit(s) onto release"), "{text}");
+    assert!(
+        text.contains("release moved ahead by 2 commit(s)"),
+        "{text}"
+    );
+    assert_eq!(subjects(&fx, "release"), ["c1", "a1", "base"]);
+    assert_eq!(tip(&fx, "main"), main, "trunk did not move");
+    assert_eq!(head_branch(&fx), "release");
+}
+
 #[test]
 fn fold_carries_the_open_change_and_leaves_it_open() {
     let fx = repo();

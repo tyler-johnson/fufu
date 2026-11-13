@@ -2032,6 +2032,94 @@ fn a_held_re_aim_onto_a_base_that_forked_earlier_lands_only_the_branchs_own_comm
     );
 }
 
+/// A target already beneath the branch, with trunk commits between them.
+///
+/// ```text
+/// base ─ main1 ─ main2 ─ child1     (child, cut with git from main)
+///    └ (release)
+/// ```
+///
+/// `main1` and `main2` write `m.txt`, and `child1_m` is what `child1` writes
+/// there when given, `x.txt` otherwise. Leaves the fixture standing on
+/// `child`. Returns `(main1, main2, child1)`.
+fn ancestor_target(fx: &Fixture, child1_m: Option<&str>) -> (String, String, String) {
+    fx.write("f.txt", "base\n");
+    fx.commit("base");
+    fx.git(&["branch", "release"]);
+    fx.write("m.txt", "main1\n");
+    let main1 = fx.commit("main1");
+    fx.write("m.txt", "main1\nmain2\n");
+    let main2 = fx.commit("main2");
+    fx.git(&["switch", "-q", "-c", "child"]);
+    match child1_m {
+        Some(m) => fx.write("m.txt", m),
+        None => fx.write("x.txt", "child1\n"),
+    }
+    let child1 = fx.commit("child1");
+    (main1, main2, child1)
+}
+
+/// `release` sits below the branch, so the target alone reads the branch as
+/// up to date, but `main1` and `main2` are `main`'s and stay off it.
+#[test]
+fn onto_a_target_beneath_the_branch_replays_only_the_branchs_own_commits() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (main1, main2, _child1) = ancestor_target(&fx, None);
+
+    let report = landed(restack_call(&fx, Some("child"), Some("release"), NOW).0);
+
+    assert!(report.reaimed);
+    assert!(!report.fast_forward, "{report:?}");
+    assert_eq!(report.replayed, 1, "only child1 is child's own");
+    assert_eq!(range_subjects(&fx, "release..child"), vec!["child1"]);
+    assert_eq!(rev(&fx, "child^"), rev(&fx, "release"));
+    assert!(!is_ancestor(&fx, &main1, "child"));
+    assert!(!is_ancestor(&fx, &main2, "child"));
+    assert_eq!(rev(&fx, "main"), main2, "main stays where it was");
+}
+
+/// A target the branch's own commits already sit on directly is up to date
+/// under a re-aim too: nothing replays and the tip stays.
+#[test]
+fn onto_a_target_the_branchs_own_commits_sit_on_replays_nothing() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_main1, main2, child1) = ancestor_target(&fx, None);
+    fx.git(&["branch", "release2", &main2]);
+
+    let report = landed(restack_call(&fx, Some("child"), Some("release2"), NOW).0);
+
+    assert!(report.reaimed);
+    assert_eq!(report.replayed, 0);
+    assert_eq!(rev(&fx, "child"), child1, "child did not move");
+}
+
+/// The beneath-the-branch shape held on `child1`'s edit of `m.txt`, which
+/// `release` never had: the hold and its replan count only `child1`.
+#[test]
+fn a_held_re_aim_onto_a_target_beneath_the_branch_counts_only_its_own_commits() {
+    let fx = Fixture::new();
+    ident(&fx);
+    let (_main1, _main2, child1) = ancestor_target(&fx, Some("main1\nmain2\nchild1\n"));
+
+    let (outcome, _ctx) = restack_call(&fx, Some("child"), Some("release"), NOW);
+    let held = match outcome {
+        RestackOutcome::Held(r) => r,
+        other => panic!("child1 edits a file release lacks and holds, got {other:?}"),
+    };
+    assert_eq!(held.of, 1, "the hold counts only child1");
+    assert_eq!(held.paths, vec!["m.txt".to_string()]);
+
+    let repo = fx.repo();
+    let hold = held::of(&repo, "child").unwrap().expect("child holds");
+    assert_eq!(
+        held::replan(&repo, &hold).unwrap().target.to_string(),
+        child1,
+        "the replan starts where the verb did"
+    );
+}
+
 /// The parents of a commit, in order.
 fn parents_of(fx: &Fixture, commit: &str) -> Vec<String> {
     fx.git(&["rev-list", "--parents", "-n1", commit])

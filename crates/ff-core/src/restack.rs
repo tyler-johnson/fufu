@@ -121,16 +121,16 @@ pub enum Aim {
     Settled,
 }
 
-/// Which of a re-aimed branch's commits are its own, and so replayed.
+/// Which base below the target bounds a re-aimed branch's replay: its own
+/// commits are those above the target and above this one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Own {
-    /// Those above the base the branch sits on now as well as above the
-    /// target, the commits `git rebase --onto <target> <base>` takes: `ff
-    /// restack --onto`, and a held one landing.
-    AboveBase,
-    /// Everything the target lacks: `ff fold`, which lands the source's
-    /// whole history in the target.
-    AboveTarget,
+pub(crate) enum OwnAbove {
+    /// The base the branch sits on now, as `git rebase --onto <target>
+    /// <base>` takes them: `ff restack --onto`, and a held one landing.
+    CurrentBase,
+    /// Trunk: `ff fold`, which lands an unlanded parent's commits with the
+    /// source's and leaves out only trunk's.
+    Trunk,
 }
 
 /// Resolve a base by either spelling. A `refs/`-prefixed spelling is taken
@@ -250,6 +250,37 @@ pub(crate) fn current_base(
     Ok(Some(base))
 }
 
+/// Trunk as the base a fold's replay of `branch` onto `target` is bounded
+/// by, with the run's planned tip standing in for the one on disk. `None`,
+/// and the range measured against the target alone, when the target is
+/// trunk or the branch's own base, or when trunk does not resolve.
+fn trunk_floor(
+    repo: &gix::Repository,
+    branch: &str,
+    target: &Onto,
+    overlay: &Overlay,
+) -> Result<Option<Onto>> {
+    if current_base(repo, branch, target, overlay)?.is_none() {
+        return Ok(None);
+    }
+    let Ok(trunk) = crate::trunk::trunk(repo) else {
+        return Ok(None);
+    };
+    // By name as well as by ref: a trunk that lives only on the remote is
+    // still the local branch of its name, as `futures::base_for` reads it.
+    if trunk.name == target.name || trunk.full_ref == target.full {
+        return Ok(None);
+    }
+    let Some(tip) = refs::ref_target(repo, &trunk.full_ref)? else {
+        return Ok(None);
+    };
+    Ok(Some(Onto {
+        tip: overlay.tip(&trunk.full_ref).unwrap_or(tip),
+        full: trunk.full_ref,
+        name: trunk.name,
+    }))
+}
+
 /// Where the range walk stops: the merge bases with the base as it stands,
 /// and the point the branch forked from the base's history.
 ///
@@ -360,7 +391,8 @@ fn walk_range(
 pub(crate) struct Range {
     /// The merge bases of the branch's tip with the base's, never empty.
     pub bases: Vec<gix::ObjectId>,
-    /// The base is already beneath the branch: nothing to replay.
+    /// The base is already beneath the branch, with nothing but the
+    /// branch's own commits between them under a re-aim: nothing to replay.
     pub up_to_date: bool,
     /// The branch is beneath the base: it moves without a replay.
     pub fast_forward: bool,
@@ -375,8 +407,10 @@ pub(crate) struct Range {
 /// two share no history. The range is walked only when the branch is
 /// neither up to date nor a fast-forward: the other two states have no
 /// commits to replay, so there is nothing to walk. `since` is the base a
-/// re-aim is leaving, which bounds the walk too and leaves the two states
-/// about `base` alone.
+/// re-aim is leaving, which bounds the walk too, and makes up to date mean
+/// that the branch's own commits sit directly on `base`. A base beneath the
+/// branch can still have the old base's commits between them, and those
+/// are not the branch's to keep.
 pub(crate) fn measure_range(
     repo: &gix::Repository,
     branch: &str,
@@ -404,17 +438,29 @@ pub(crate) fn measure_range(
     // Up-to-date before fast-forward: when the tips are equal both are true,
     // and the honest answer is "already there", not "fast-forwarded by
     // nothing". futures.rs makes the same choice for the same reason.
-    let up_to_date = bases.contains(&base.tip);
-    let fast_forward = !up_to_date && bases.contains(&branch_tip);
+    let beneath = bases.contains(&base.tip);
+    let fast_forward = !beneath && bases.contains(&branch_tip);
 
     let (mut commits, mut merge) = (Vec::new(), None);
-    if !up_to_date && !fast_forward {
+    // A re-aim onto a base already beneath the branch still walks: the
+    // commits between the two may be the old base's rather than the
+    // branch's, as with a release branch cut from trunk below where the
+    // branch did.
+    if !fast_forward && (!beneath || since.is_some()) {
         // The branch's own commits, down to where it forked from the base:
         // the range `replan_restack` measures, so the verb and the replan
         // cannot disagree. A restack is something a person asked for, so
         // the range is walked in full — no depth cap.
         let boundary = range_boundary(repo, branch_tip, base, since, &bases)?;
         (commits, merge) = walk_range(repo, branch_tip, &boundary)?;
+    }
+    // Under a re-aim, up to date means the branch's own commits already sit
+    // directly on the base: every commit the base lacks is one of them.
+    let up_to_date = beneath
+        && (since.is_none()
+            || crate::upstream::count_exclusive(repo, branch_tip, &[base.tip])? == commits.len());
+    if up_to_date {
+        (commits, merge) = (Vec::new(), None);
     }
     Ok(Range {
         bases,
@@ -927,29 +973,29 @@ pub(crate) fn plan_restack(
     aim: Aim,
     overlay: &Overlay,
 ) -> Result<RestackPlan> {
-    plan_restack_owning(
+    plan_restack_above(
         repo,
         branch,
         onto,
         now,
         decided,
         aim,
-        Own::AboveBase,
+        OwnAbove::CurrentBase,
         overlay,
     )
 }
 
-/// [`plan_restack`], with which of a re-aimed branch's commits replay
-/// settled by the caller: `ff fold` takes everything the target lacks.
+/// [`plan_restack`], with the caller saying which base below the target
+/// bounds a re-aim's replay: `ff fold` asks for trunk.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn plan_restack_owning(
+pub(crate) fn plan_restack_above(
     repo: &gix::Repository,
     branch: Option<String>,
     onto: Option<String>,
     now: i64,
     decided: &rewrite::Decided,
     aim: Aim,
-    own: Own,
+    own_above: OwnAbove,
     overlay: &Overlay,
 ) -> Result<RestackPlan> {
     // 3. HEAD, and the branch to move. HEAD's own state is only fatal when
@@ -1090,11 +1136,13 @@ pub(crate) fn plan_restack_owning(
 
     // 5. The range, and whether the worktree moves. A merge in it is carried
     // by the engine; §7 remembers it to probe through the same engine.
-    // A re-aim replays only the branch's commits above the base it is
-    // leaving as well as above the target (gh #22).
-    let since = match own {
-        Own::AboveBase if reaimed => current_base(repo, &branch, &base, overlay)?,
-        _ => None,
+    // A re-aim replays only the branch's own commits: those above the target
+    // and above the base it is leaving (gh #22), or above trunk for `ff
+    // fold`.
+    let since = match own_above {
+        _ if !reaimed => None,
+        OwnAbove::CurrentBase => current_base(repo, &branch, &base, overlay)?,
+        OwnAbove::Trunk => trunk_floor(repo, &branch, &base, overlay)?,
     };
     let Range {
         bases,
