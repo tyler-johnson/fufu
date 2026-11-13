@@ -166,7 +166,7 @@ Pushing parser-cli alone transfers the Git objects needed for its history, inclu
 
 Named pushes preserve each target's saved working state. This fixture had no uncommitted work on either target, so switching to parser-cli shows its committed files and a clean working copy. Genuine parked edits resume when you switch to their branch.
 
-In v0.16.0, an off-branch push could instead save the current checkout's tree as the target's open work. Switching there could resume apparent deletions or overwrite parked edits. Updating prevents new occurrences but does not reconstruct already affected work. If the branch had no uncommitted edits, [`ff restore --all`](../reference/cli/restore.md) restores its committed files. To recover genuine parked edits, use a retained pre-push capture; [file recovery](recovery.md#restore-files-by-time-or-snapshot) explains how. While using an affected version, push each branch while it is current.
+In v0.16.0 only, an off-branch push could save the current checkout's tree as the target's open work, so switching there resumed apparent deletions or overwrote parked edits. Work affected then stays affected after updating. If the branch had no uncommitted edits, [`ff restore --all`](../reference/cli/restore.md) restores its committed files. To recover genuine parked edits, use a retained pre-push capture; [file recovery](recovery.md#restore-files-by-time-or-snapshot) explains how.
 
 <!-- transcript:after-named-push -->
 ```console
