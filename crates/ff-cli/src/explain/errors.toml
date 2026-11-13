@@ -46,13 +46,13 @@ exits = ["ff undo", "ff branch"]
 [[entry]]
 id = "branch/shared-moved"
 summary = "the remote-tracking tip differs from the seen record; deletion was refused"
-detail = "Run ff pull <branch> and inspect what arrived before retrying ff branch -d <branch> --shared. The local branch and remote copy have not been deleted by this request. Shared deletion requires the cached remote-tracking tip to match fufu's seen record. A fetch can move the tracking ref without updating that record; a reporting pull updates what fufu records as seen. Resolve any resulting hold before continuing."
+detail = "Run ff pull <branch> and inspect what arrived before retrying ff branch -d <branch> --shared. The local branch and remote copy have not been deleted by this request. Shared deletion requires the cached remote-tracking tip to match fufu's seen record, or the branch's own reflog to show it holding that tip, on that commit or on one containing it. A fetch can move the tracking ref without updating that record or moving the branch; a reporting pull updates what fufu records as seen. Resolve any resulting hold before continuing."
 exits = ["ff pull <branch>", "ff branch"]
 
 [[entry]]
 id = "branch/shared-unseen"
 summary = "there is no seen record for the remote copy; deletion was refused"
-detail = "Run ff pull <branch> to fetch and report the remote copy, then review it before retrying the shared deletion. Fufu has no recorded seen tip to use for this deletion's lease, for example after an upstream was configured through Git. This request has deleted neither the local branch nor the remote copy. A fetch alone does not establish the seen record."
+detail = "Run ff pull <branch> to fetch and report the remote copy, then review it before retrying the shared deletion. Fufu has no recorded seen tip to use for this deletion's lease, for example after an upstream was configured through Git, and the branch's own reflog does not show it holding the tracking tip, which would stand in for the record. This request has deleted neither the local branch nor the remote copy. A fetch alone does not establish the seen record."
 exits = ["ff pull <branch>", "ff branch"]
 
 [[entry]]

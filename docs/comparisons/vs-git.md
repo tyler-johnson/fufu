@@ -32,7 +32,7 @@ The operation log records captured files and local operations. On returning afte
 
 ## The opinions, and where they stop
 
-fufu's update commands replay feature work onto its base rather than merging the base into it. Rewriting commits is routine, including commits already pushed. [`ff push`](../reference/cli/push.md) is a separate explicit command; a lease checks the expected remote tip, and replacing commits also requires fufu's seen record to agree with the tracking tip.
+fufu's update commands replay feature work onto its base rather than merging the base into it. Rewriting commits is routine, including commits already pushed. [`ff push`](../reference/cli/push.md) is a separate explicit command; a lease checks the expected remote tip, and replacing or deleting a remote copy also requires fufu's seen record to agree with the tracking tip, or the branch's own reflog to show it holding that tip.
 
 These checks do not establish who owns a branch or make published history append-only. Teams choose their [shared-history policy](../concepts/push-boundary.md#shared-history-policy) and server-side protections. A clean textual replay still needs the project's normal verification.
 

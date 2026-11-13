@@ -519,21 +519,30 @@ pub fn shared_copy(repo: &gix::Repository, name: &str) -> Result<Option<crate::m
 /// is the tip fufu last showed the copy standing at, never the tracking
 /// tip, which any fetch moves: a tracking ref standing off the record is a
 /// copy holding commits nobody looked at, and a delete under a lease read
-/// from it would take them with it. Both refusals come before the local
-/// delete, so the branch stays where it is. An absent tracking ref keeps
-/// the empty lease: the copy is gone, and there is nothing to delete. The
-/// exits name the local branch, `name`, which the copy's name may differ
-/// from.
-pub fn shared_lease(name: &str, shared: &crate::model::SharedCopy) -> Result<String> {
+/// from it would take them with it. A tracking tip the branch's own reflog
+/// shows it holding is the exception, record or none, as for push: see
+/// [`crate::seen::held`]. That evidence goes with the branch, so callers
+/// ask before the local delete. Both refusals come before the local delete,
+/// so the branch stays where it is. An absent tracking ref keeps the empty
+/// lease: the copy is gone, and there is nothing to delete. The exits name
+/// the local branch, `name`, which the copy's name may differ from.
+pub fn shared_lease(
+    repo: &gix::Repository,
+    name: &str,
+    shared: &crate::model::SharedCopy,
+) -> Result<String> {
     if shared.tip.is_empty() {
         return Ok(String::new());
     }
+    let held = gix::ObjectId::from_hex(shared.tip.as_bytes())
+        .is_ok_and(|tip| crate::seen::held(repo, name, tip));
     let exits = vec![
         format!("ff pull {name}"),
         format!("ff branch -d {name} --shared"),
     ];
     match shared.seen.as_deref() {
         Some(seen) if seen == shared.tip => Ok(shared.tip.clone()),
+        _ if held => Ok(shared.tip.clone()),
         Some(_) => Err(Error::coded(
             "branch/shared-moved",
             format!(

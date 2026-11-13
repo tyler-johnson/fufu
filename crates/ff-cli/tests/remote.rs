@@ -544,3 +544,118 @@ fn a_fetched_move_is_refused_before_the_local_delete() {
     let heads = fx.remote_git(&["for-each-ref", "refs/heads"]);
     assert!(!heads.lines().any(|l| l.contains("shared")), "{heads}");
 }
+
+/// A second clone commits on `branch` and pushes it, behind this clone's
+/// back. Returns the tip it pushed.
+fn teammate_moves(fx: &Fixture, branch: &str) -> String {
+    let mover = fx.root().join("mover");
+    fx.git_in(
+        fx.root(),
+        &["clone", "-q", &fx.remote_path().to_string_lossy(), "mover"],
+    );
+    fx.git_in(&mover, &["checkout", "-q", branch]);
+    std::fs::write(mover.join("c.txt"), "c\n").expect("write in the mover");
+    fx.git_in(&mover, &["add", "-A"]);
+    fx.git_in(&mover, &["commit", "-q", "-m", "move"]);
+    fx.git_in(&mover, &["push", "-q", "origin", branch]);
+    fx.git_in(&mover, &["rev-parse", "HEAD"]).trim().to_string()
+}
+
+/// `main` published, then `topic` pushed with git: a tracking ref and no
+/// seen record, the shape of a branch from before records existed.
+fn git_pushed_topic() -> Fixture {
+    let fx = Fixture::new_cloned();
+    fx.write("a.txt", "a\n");
+    fx.commit("one");
+    ok(&ff(&fx, &["push"]));
+    fx.git(&["checkout", "-q", "-b", "topic"]);
+    fx.write("b.txt", "b\n");
+    fx.commit("two");
+    fx.git(&["push", "-q", "-u", "origin", "topic"]);
+    fx.git(&["checkout", "-q", "main"]);
+    assert!(
+        fx.try_git(&["rev-parse", "-q", "--verify", "refs/fufu/seen/topic"])
+            .stdout
+            .is_empty(),
+        "git's push writes no record"
+    );
+    fx
+}
+
+/// No record, but the branch stood on the copy's tip, as its reflog shows:
+/// that is the evidence, and the delete goes under the tracking tip.
+#[test]
+fn a_copy_git_pushed_deletes_with_no_record() {
+    let fx = git_pushed_topic();
+    let text = ok(&ff(&fx, &["branch", "-d", "topic", "--shared"]));
+    assert!(
+        text.contains("removed the shared copy origin/topic"),
+        "{text}"
+    );
+    let heads = fx.remote_git(&["for-each-ref", "refs/heads"]);
+    assert!(!heads.lines().any(|l| l.contains("topic")), "{heads}");
+    let remotes = fx.git(&["for-each-ref", "refs/remotes"]);
+    assert!(!remotes.lines().any(|l| l.contains("topic")), "{remotes}");
+}
+
+/// A teammate's move fetched, merged into the branch with git, and reset
+/// away: the record still names the older tip, but the branch held the
+/// copy's tip inside the merge, so the delete goes.
+#[test]
+fn a_copy_held_through_a_merge_deletes_with_a_stale_record() {
+    let fx = published_branches();
+    let theirs = teammate_moves(&fx, "shared");
+    fx.git(&["fetch", "-q"]);
+    fx.git(&["checkout", "-q", "shared"]);
+    fx.write("d.txt", "d\n");
+    fx.commit("local");
+    let mine = fx.git(&["rev-parse", "HEAD"]).trim().to_string();
+    fx.git(&["merge", "-q", "--no-edit", "origin/shared"]);
+    fx.git(&["reset", "-q", "--hard", &mine]);
+    fx.git(&["checkout", "-q", "main"]);
+    let seen = fx
+        .git(&["rev-parse", "refs/fufu/seen/shared"])
+        .trim()
+        .to_string();
+    assert_ne!(seen, theirs, "the record is stale");
+
+    let text = ok(&ff(&fx, &["branch", "-d", "shared", "--shared"]));
+    assert!(
+        text.contains("removed the shared copy origin/shared"),
+        "{text}"
+    );
+    let heads = fx.remote_git(&["for-each-ref", "refs/heads"]);
+    assert!(!heads.lines().any(|l| l.contains("shared")), "{heads}");
+}
+
+/// The branch held its own pushed tip, not the one a fetch brought in
+/// after a teammate moved the copy: no record refuses as unseen, a stale
+/// one as moved, and neither deletes anything here or there.
+#[test]
+fn a_tip_only_a_fetch_brought_in_still_refuses() {
+    let fx = git_pushed_topic();
+    let sent = fx.git(&["rev-parse", "topic"]).trim().to_string();
+    let theirs = teammate_moves(&fx, "topic");
+    fx.git(&["fetch", "-q"]);
+
+    let out = ff(&fx, &["--json", "branch", "-d", "topic", "--shared"]);
+    assert!(!out.status.success(), "{}", both(&out));
+    let v = json(&out);
+    assert_eq!(v["error"]["id"], "branch/shared-unseen", "{v}");
+    assert!(stdout(&ff(&fx, &["branch"])).contains("topic"));
+    assert_eq!(
+        fx.remote_git(&["rev-parse", "refs/heads/topic"]).trim(),
+        theirs
+    );
+
+    fx.git(&["update-ref", "refs/fufu/seen/topic", &sent]);
+    let out = ff(&fx, &["--json", "branch", "-d", "topic", "--shared"]);
+    assert!(!out.status.success(), "{}", both(&out));
+    let v = json(&out);
+    assert_eq!(v["error"]["id"], "branch/shared-moved", "{v}");
+    assert!(stdout(&ff(&fx, &["branch"])).contains("topic"));
+    assert_eq!(
+        fx.remote_git(&["rev-parse", "refs/heads/topic"]).trim(),
+        theirs
+    );
+}

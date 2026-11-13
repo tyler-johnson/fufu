@@ -227,7 +227,9 @@ fn delete_branch(ctx: &Ctx, target: &str, shared: bool) -> Result<()> {
     // against the tracking ref now: a copy that moved since, or one fufu
     // never showed, is refused here with the branch still standing, since
     // a refusal after the local delete would leave the branch gone with the
-    // refusal unspoken. The copy itself is read from the report once the
+    // refusal unspoken. A tracking tip the branch's reflog shows it holding
+    // is leased too, and that reflog goes with the local delete, so it is
+    // read here. The copy itself is read from the report once the
     // delete is done, and an upstream under another branch's name is not
     // one — it is the base the branch was cut from, and the report leaves
     // it unnamed.
@@ -245,7 +247,7 @@ fn delete_branch(ctx: &Ctx, target: &str, shared: bool) -> Result<()> {
     };
     let lease = if shared {
         ff_core::branch::shared_copy(&repo, target)?
-            .map(|copy| ff_core::branch::shared_lease(target, &copy))
+            .map(|copy| ff_core::branch::shared_lease(&repo, target, &copy))
             .transpose()?
     } else {
         None
