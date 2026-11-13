@@ -24,7 +24,9 @@
 //! else, and this pointer, which is not.
 //!
 //! Both are written by [`publish::record`](crate::push::record), in that
-//! order, and nothing else writes either.
+//! order, and nothing else writes either. A rename carries this pointer to
+//! the new name, and undo of the rename carries it back, without changing
+//! the tip it holds.
 //!
 //! Failure points the same direction [`accounted_for`](crate::accounted_for)
 //! does — an unreadable or absent pointer answers *no*, which routes the
@@ -82,5 +84,17 @@ pub(crate) fn mark(
         gix::refs::transaction::PreviousValue::Any,
         now,
         "publish: left the shared copy here",
+    )
+}
+
+/// Carry the record from `old` to `new` with its reflog, for a rename: the
+/// shared copy did not move, only the local name that keys it.
+pub(crate) fn rename(repo: &gix::Repository, old: &str, new: &str, now: i64) -> Result<()> {
+    crate::refs::move_ref_with_log(
+        repo,
+        &ref_name(old),
+        &ref_name(new),
+        now,
+        &format!("branch: renamed from {old}"),
     )
 }

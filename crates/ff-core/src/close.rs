@@ -263,6 +263,10 @@ pub fn close(
     record.argv = opts.argv.clone();
     record.refs = transitions;
     record.head = head_transition;
+    record.renamed = claim_from.as_ref().map(|old| crate::ops::RenameTransition {
+        old: old.clone(),
+        new: target_branch.clone(),
+    });
     record.description = pending.as_ref().map(|text| DescriptionTransition {
         branch: current_branch.clone(),
         old: Some(text.clone()),

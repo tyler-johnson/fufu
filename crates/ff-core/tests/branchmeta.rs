@@ -251,3 +251,183 @@ fn start_from_a_sha_records_no_parent() {
         "forked_from ({forked_from}) should be a short sha of {sha}"
     );
 }
+
+fn restack_hold(branch: &str, onto: &str) -> ff_core::held::Held {
+    ff_core::held::Held {
+        intent: ff_core::held::Intent::Restack {
+            branch: branch.into(),
+            onto: onto.into(),
+        },
+        at: ff_core::futures::At::OpenChange,
+        paths: vec!["f.txt".into()],
+        time: NOW,
+    }
+}
+
+fn resolving(hold: ff_core::held::Held, session: &str) -> ff_core::held::Resolve {
+    ff_core::held::Resolve {
+        hold,
+        from: "0".repeat(40),
+        steps: vec!["c1".into()],
+        open: None,
+        session: session.into(),
+        resolutions: Vec::new(),
+        files: Vec::new(),
+        kept: Vec::new(),
+    }
+}
+
+/// A rename points every record naming the branch at its new name, on the
+/// renamed branch and across the others: the hold standing on it and the
+/// open resolution's copy and session branch, a child's parent, a child's
+/// hold restacking onto it, and a session landing on it. Records naming
+/// another branch, a tracking ref under the same short name, and the
+/// display-only `forked_from` stay as written.
+#[test]
+fn rename_references_points_every_record_at_the_new_name() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    for name in ["new", "child", "aimed", "ff/sess", "landing", "other"] {
+        fx.git(&["branch", name]);
+    }
+    let repo = fx.repo();
+    let at = fx.git(&["rev-parse", "HEAD"]).trim().to_string();
+
+    // The renamed branch's own metadata, already moved under the new name.
+    let own = BranchMeta {
+        held: Some(restack_hold("old", "refs/heads/main")),
+        resolving: Some(resolving(restack_hold("old", "refs/heads/main"), "ff/sess")),
+        ..BranchMeta::default()
+    };
+    branchmeta::write(&repo, "new", &own).unwrap();
+    let child = BranchMeta {
+        parent: Some("old".into()),
+        forked_from: Some("old".into()),
+        ..BranchMeta::default()
+    };
+    branchmeta::write(&repo, "child", &child).unwrap();
+    let aimed = BranchMeta {
+        parent: Some("old".into()),
+        held: Some(restack_hold("aimed", "refs/heads/old")),
+        resolving: Some(resolving(restack_hold("aimed", "refs/heads/old"), "ff/x")),
+        ..BranchMeta::default()
+    };
+    branchmeta::write(&repo, "aimed", &aimed).unwrap();
+    let sess = BranchMeta {
+        session: Some(Session {
+            onto: "old".into(),
+            at: at.clone(),
+        }),
+        ..BranchMeta::default()
+    };
+    branchmeta::write(&repo, "ff/sess", &sess).unwrap();
+    // A held merge recorded with the bare short name, and a held done whose
+    // editing session is the renamed branch.
+    let landing = BranchMeta {
+        held: Some(ff_core::held::Held {
+            intent: ff_core::held::Intent::Done {
+                session: "old".into(),
+            },
+            ..restack_hold("landing", "main")
+        }),
+        ..BranchMeta::default()
+    };
+    branchmeta::write(&repo, "landing", &landing).unwrap();
+    let other = BranchMeta {
+        parent: Some("origin/old".into()),
+        held: Some(ff_core::held::Held {
+            intent: ff_core::held::Intent::Merge {
+                branch: "other".into(),
+                onto: "old".into(),
+                message: None,
+            },
+            ..restack_hold("other", "main")
+        }),
+        ..BranchMeta::default()
+    };
+    branchmeta::write(&repo, "other", &other).unwrap();
+
+    branchmeta::rename_references(&repo, "old", "new").unwrap();
+
+    let own = branchmeta::read(&repo, "new").unwrap();
+    assert_eq!(
+        own.held.unwrap().intent,
+        restack_hold("new", "refs/heads/main").intent
+    );
+    let open = own.resolving.unwrap();
+    assert_eq!(
+        open.hold.intent,
+        restack_hold("new", "refs/heads/main").intent
+    );
+    assert_eq!(open.session, "ff/sess");
+
+    let child = branchmeta::read(&repo, "child").unwrap();
+    assert_eq!(child.parent.as_deref(), Some("new"));
+    assert_eq!(child.forked_from.as_deref(), Some("old"));
+
+    let aimed = branchmeta::read(&repo, "aimed").unwrap();
+    assert_eq!(aimed.parent.as_deref(), Some("new"));
+    assert_eq!(
+        aimed.held.unwrap().intent,
+        restack_hold("aimed", "refs/heads/new").intent
+    );
+    assert_eq!(
+        aimed.resolving.unwrap().hold.intent,
+        restack_hold("aimed", "refs/heads/new").intent
+    );
+
+    let sess = branchmeta::read(&repo, "ff/sess").unwrap();
+    assert_eq!(
+        sess.session,
+        Some(Session {
+            onto: "new".into(),
+            at
+        })
+    );
+
+    let landing = branchmeta::read(&repo, "landing").unwrap();
+    assert_eq!(
+        landing.held.unwrap().intent,
+        ff_core::held::Intent::Done {
+            session: "new".into()
+        }
+    );
+
+    let other = branchmeta::read(&repo, "other").unwrap();
+    assert_eq!(other.parent.as_deref(), Some("origin/old"));
+    assert_eq!(
+        other.held.unwrap().intent,
+        ff_core::held::Intent::Merge {
+            branch: "other".into(),
+            onto: "new".into(),
+            message: None,
+        }
+    );
+}
+
+/// A session branch renamed: the resolution record on the branch it resolves
+/// follows it to the new name.
+#[test]
+fn rename_references_follows_a_renamed_session_branch() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.git(&["branch", "feature"]);
+    let repo = fx.repo();
+    let meta = BranchMeta {
+        held: Some(restack_hold("feature", "refs/heads/main")),
+        resolving: Some(resolving(
+            restack_hold("feature", "refs/heads/main"),
+            "ff/sess",
+        )),
+        ..BranchMeta::default()
+    };
+    branchmeta::write(&repo, "feature", &meta).unwrap();
+
+    branchmeta::rename_references(&repo, "ff/sess", "fixing").unwrap();
+
+    let after = branchmeta::read(&repo, "feature").unwrap();
+    assert_eq!(after.resolving.unwrap().session, "fixing");
+    assert_eq!(after.held, meta.held, "the hold names no session");
+}

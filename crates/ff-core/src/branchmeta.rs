@@ -82,6 +82,28 @@ impl BranchMeta {
             && self.held.is_none()
             && self.resolving.is_none()
     }
+
+    /// Rewrite every field naming branch `old` to name `new`, for a rename:
+    /// the recorded parent, the branch a session lands on, the hold's
+    /// question, and the open resolution's copy of it and its session
+    /// branch. `forked_from` is a display string written once at the mint
+    /// and stays as written. Returns whether anything changed.
+    pub fn rename_branch(&mut self, old: &str, new: &str) -> bool {
+        let mut changed = false;
+        if let Some(parent) = &mut self.parent {
+            changed |= crate::held::follow(parent, old, new);
+        }
+        if let Some(session) = &mut self.session {
+            changed |= crate::held::follow(&mut session.onto, old, new);
+        }
+        if let Some(held) = &mut self.held {
+            changed |= held.rename_branch(old, new);
+        }
+        if let Some(resolving) = &mut self.resolving {
+            changed |= resolving.rename_branch(old, new);
+        }
+        changed
+    }
 }
 
 fn meta_path(repo: &gix::Repository, branch: &str) -> PathBuf {
@@ -110,4 +132,18 @@ pub fn rename(repo: &gix::Repository, old: &str, new: &str) -> Result<()> {
     let meta = read(repo, old)?;
     write(repo, new, &meta)?;
     write(repo, old, &BranchMeta::default())
+}
+
+/// Point every branch's records at `new` where they name `old`, the
+/// renamed branch's own included: a child's parent, a child held restacking
+/// onto it, a session landing on it, and the hold standing on it. Walks the
+/// local branches, since a record only matters on a branch that exists.
+pub fn rename_references(repo: &gix::Repository, old: &str, new: &str) -> Result<()> {
+    for branch in crate::switch::branch_names(repo)? {
+        let mut meta = read(repo, &branch)?;
+        if meta.rename_branch(old, new) {
+            write(repo, &branch, &meta)?;
+        }
+    }
+    Ok(())
 }

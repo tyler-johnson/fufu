@@ -187,6 +187,17 @@ pub struct ResolveTransition {
     pub new: Option<crate::held::Resolve>,
 }
 
+/// A branch renamed. The ref table carries the branch ref, its parked entry,
+/// and HEAD; everything else keyed by the name lives outside it — the
+/// pointer into the log, the metadata file and the records on other
+/// branches naming this one, the seen and published records, the upstream
+/// section — and undo and redo move those by name from this record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RenameTransition {
+    pub old: String,
+    pub new: String,
+}
+
 /// The machine record of one operation (`op.json`).
 ///
 /// `pre_snapshot` and `index_tree` are gone from the old journal shape
@@ -316,6 +327,10 @@ pub struct OpRecord {
     /// empty, so no `RECORD_VERSION` bump.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pointers: Vec<PointerTransition>,
+    /// The branch this operation renamed. Skipped when absent, so no
+    /// `RECORD_VERSION` bump.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub renamed: Option<RenameTransition>,
 }
 
 impl OpRecord {
@@ -353,6 +368,7 @@ impl OpRecord {
             published: None,
             companion: None,
             pointers: Vec::new(),
+            renamed: None,
         }
     }
 }

@@ -248,6 +248,28 @@ pub(crate) fn create_ref_with_log(
     Ok(())
 }
 
+/// Move `from` to `to` with its reflog, so `to` ends holding exactly what
+/// `from` held: a record already under `to` belonged to another branch of
+/// that name and goes first, and with nothing under `from` nothing is left
+/// under `to`.
+pub(crate) fn move_ref_with_log(
+    repo: &gix::Repository,
+    from: &str,
+    to: &str,
+    now: i64,
+    closing_message: &str,
+) -> Result<()> {
+    if let Some(stale) = ref_target(repo, to)? {
+        delete_ref(repo, to, stale, now)?;
+    }
+    let Some(tip) = ref_target(repo, from)? else {
+        return Ok(());
+    };
+    let lines = read_ref_log(repo, from)?;
+    create_ref_with_log(repo, to, tip, &lines, now, closing_message)?;
+    delete_ref(repo, from, tip, now)
+}
+
 /// The user identity from config/environment, with the timestamp pinned to
 /// `now`. Unset identity is fatal by design — fufu's own machinery uses the
 /// fufu identity, but commits and stashes belong to the user.

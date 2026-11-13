@@ -19,7 +19,9 @@
 //! remote axis it reported, whatever the outcome; `ff switch` minting a
 //! branch that continues a remote's, to the tip it minted at; and `ff
 //! clone`, to the tip it checked out. `ff branch -d --shared` deletes it
-//! with the copy's other traces.
+//! with the copy's other traces. A rename carries it to the new name, and
+//! undo of the rename carries it back: the name keys the record, and the
+//! tip it holds does not change.
 //!
 //! Like [`crate::published`] it is a ref outside `TRACKED_PREFIXES` and
 //! outside undo, for the same reason: the wire does not step back. An
@@ -88,4 +90,16 @@ pub(crate) fn forget(repo: &gix::Repository, branch: &str, now: i64) -> Result<(
         crate::refs::delete_ref(repo, &name, tip, now)?;
     }
     Ok(())
+}
+
+/// Carry the record from `old` to `new` with its reflog, for a rename: the
+/// shared copy did not move, only the local name that keys it.
+pub(crate) fn rename(repo: &gix::Repository, old: &str, new: &str, now: i64) -> Result<()> {
+    crate::refs::move_ref_with_log(
+        repo,
+        &ref_name(old),
+        &ref_name(new),
+        now,
+        &format!("branch: renamed from {old}"),
+    )
 }

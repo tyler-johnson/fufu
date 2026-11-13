@@ -579,9 +579,11 @@ fn move_refs(
 /// upstreams, editing sessions, held rewrites, resolution sessions, and
 /// parked pointers, in the same order and by the same rule — what is left
 /// behind restores its `old`, what is entered applies its `new`, and the
-/// last write is the one the landing recorded. Returns the companions: the
-/// other half of each two-chain operation, which is not this chain's to
-/// move.
+/// last write is the one the landing recorded. A rename's records move
+/// back first when its operation is left and forward last when it is
+/// entered, because the transitions beside it name the branch as it was
+/// called before the rename. Returns the companions: the other half of each
+/// two-chain operation, which is not this chain's to move.
 fn apply_metadata(
     repo: &gix::Repository,
     back: &[Operation<'_>],
@@ -597,6 +599,11 @@ fn apply_metadata(
             // move; the report says what the other tree still holds.
             if let Some(companion) = &op_record.companion {
                 companions.push(companion.text.clone());
+            }
+            if let Some(r) = &op_record.renamed
+                && !replay
+            {
+                crate::branch::carry_records(repo, &r.new, &r.old, now)?;
             }
             if let Some(d) = &op_record.description {
                 let mut meta = branchmeta::read(repo, &d.branch)?;
@@ -674,6 +681,11 @@ fn apply_metadata(
                 if refs::ref_target(repo, src)? == Some(tip) {
                     refs::delete_ref(repo, src, tip, now)?;
                 }
+            }
+            if let Some(r) = &op_record.renamed
+                && replay
+            {
+                crate::branch::carry_records(repo, &r.old, &r.new, now)?;
             }
         }
     }
@@ -986,6 +998,9 @@ fn move_pointer(
     use std::collections::BTreeMap;
     let mut pointers: BTreeMap<String, Option<gix::ObjectId>> = BTreeMap::new();
     // Newest-first, so the last write wins and lands on the oldest.
+    // A rename is recorded on the name it ran under and carries the pointer
+    // to the new name, which step 7 has already moved back or forward: left,
+    // the new name has no pointer; entered, the pointer is the new name's.
     for op in back {
         if let Some(branch) = op.branch() {
             pointers.insert(
@@ -993,12 +1008,19 @@ fn move_pointer(
                 op.prev_on_branch().map(|id| id.object_id()),
             );
         }
+        if let Some(renamed) = op.record()?.and_then(|r| r.renamed.as_ref()) {
+            pointers.insert(renamed.new.clone(), None);
+        }
     }
     // Newest-first again, and here the *first* is the one to keep — so write
     // oldest-first and let the newest land last.
     for op in fwd.iter().rev() {
         if let Some(branch) = op.branch() {
             pointers.insert(branch.to_string(), Some(op.id().object_id()));
+        }
+        if let Some(renamed) = op.record()?.and_then(|r| r.renamed.as_ref()) {
+            pointers.insert(renamed.old.clone(), None);
+            pointers.insert(renamed.new.clone(), Some(op.id().object_id()));
         }
     }
 

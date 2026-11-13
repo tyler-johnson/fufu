@@ -15,7 +15,7 @@ ff describe -b unicode-cleanup  # Rename the current branch
 
 - Draft message: omit the revision, or use `@`. `ff commit` uses this pending description unless its own `-m` overrides it. Describing updates internal open metadata without advancing branch history, and runs no commit hooks.
 - Existing message: name one recorded revision. Its message changes and commits above it re-parent in the same operation, including branches inside that range. Surviving change IDs stay the same; commit hashes change.
-- Branch rename: `-b <name>` renames the current branch, whether its old name was automatic or chosen. Its capture history, parked work, and pending description remain associated with it. This mode cannot be combined with a revision or `-m`.
+- Branch rename: `-b <name>` renames the current branch, whether its old name was automatic or chosen. Its capture history, parked work, pending description, upstream, the seen and published records `ff push` leases on, and any hold on it move with it, and other branches' records that name it follow: a child's base and a hold restacking onto it. A shared copy keeps its old name, and `ff push` keeps sending there until you change the upstream. One `ff undo` takes the rename back with all of it. This mode cannot be combined with a revision or `-m`.
 
 The [revision expression](../revisions.md#revision-sets-and-grammar) must select exactly one member. Without `-m`, message modes open `$EDITOR` with the current text.
 

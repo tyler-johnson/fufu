@@ -125,6 +125,36 @@ impl Intent {
             _ => None,
         }
     }
+
+    /// Rewrite every branch this intent names from `old` to `new`, for a
+    /// rename. `onto` follows when it names the branch, as a full ref or as
+    /// the bare short name an older record carries. A move's ends are shas
+    /// or `@` and name no branch. Returns whether anything changed.
+    pub fn rename_branch(&mut self, old: &str, new: &str) -> bool {
+        match self {
+            Intent::Restack { branch, onto } | Intent::Merge { branch, onto, .. } => {
+                let moved = follow(branch, old, new);
+                let aimed = follow(
+                    onto,
+                    &format!("refs/heads/{old}"),
+                    &format!("refs/heads/{new}"),
+                ) || follow(onto, old, new);
+                moved || aimed
+            }
+            Intent::Done { session } => follow(session, old, new),
+            Intent::Arrive { branch, .. } => follow(branch, old, new),
+            Intent::Absorb { .. } | Intent::Lift { .. } => false,
+        }
+    }
+}
+
+/// Replace `name` with `new` when it is `old`; whether it was.
+pub(crate) fn follow(name: &mut String, old: &str, new: &str) -> bool {
+    if name == old {
+        *name = new.to_string();
+        return true;
+    }
+    false
 }
 
 /// Absorb's default sources, for a hold recorded before `--from` existed.
@@ -188,6 +218,13 @@ pub struct Held {
     /// id here would either be circular or empty after an undo restored it
     /// from that record. The question people ask is how long it has stood.
     pub time: i64,
+}
+
+impl Held {
+    /// [`Intent::rename_branch`] on the hold's question.
+    pub fn rename_branch(&mut self, old: &str, new: &str) -> bool {
+        self.intent.rename_branch(old, new)
+    }
 }
 
 /// What a hold has to become before anything can simulate or land it: the
@@ -258,6 +295,16 @@ pub struct Resolve {
     /// The files in this round's tree where a conflict took no markers and your version stands, sorted and deduped. `ff done` lands them as they stand. Empty on a record written before sessions kept them.
     #[serde(default)]
     pub kept: Vec<String>,
+}
+
+impl Resolve {
+    /// Rewrite the branches this session record names from `old` to `new`:
+    /// its copy of the hold, and the session branch. Returns whether
+    /// anything changed.
+    pub fn rename_branch(&mut self, old: &str, new: &str) -> bool {
+        let held = self.hold.rename_branch(old, new);
+        follow(&mut self.session, old, new) || held
+    }
 }
 
 /// The hold standing on `branch`, if one does.

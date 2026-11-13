@@ -4,18 +4,19 @@
 //! Rename is built by hand — gix has no native rename — as
 //! create-new-with-replayed-reflog FIRST, then delete-old: a crash leaves
 //! both names, never neither. The rename carries everything that makes the
-//! branch a fufu change: the snap chain, the parked entry, and the
-//! metadata file. Divergences from `git branch -m`, accepted and
-//! documented: no trailing "Branch: renamed" reflog line (its old and new
-//! values are equal, which the transaction machinery drops), and the first
-//! replayed line's previous-value column is null.
+//! branch a fufu change: the snap chain, the parked entry, the metadata
+//! file, the seen and published records, and other branches' records
+//! naming it. Divergences from `git branch -m`, accepted and documented: no
+//! trailing "Branch: renamed" reflog line (its old and new values are
+//! equal, which the transaction machinery drops), and the first replayed
+//! line's previous-value column is null.
 
 use std::collections::HashSet;
 
 use crate::error::{Error, Result};
 use crate::model::HeadState;
 use crate::ops::record::observe_refs;
-use crate::ops::{BRANCH_PREFIX, OpKind, OpRecord, RefTransition, verb};
+use crate::ops::{BRANCH_PREFIX, OpKind, OpRecord, RefTransition, RenameTransition, verb};
 use crate::refs;
 use crate::stash;
 
@@ -72,8 +73,9 @@ pub struct RenameEffects {
 }
 
 /// Rename `old` to `new`, carrying the snap chain, parked entry, metadata,
-/// and the branch's upstream. This is the mechanism beneath `ff describe -b`
-/// and the `-b` placeholder claims on `ff commit` and `ff start`.
+/// the records naming the branch, and its upstream. This is the mechanism
+/// beneath `ff describe -b` and the `-b` placeholder claims on `ff commit`
+/// and `ff start`.
 pub fn rename(repo: &gix::Repository, old: &str, new: &str, now: i64) -> Result<RenameEffects> {
     validate_name(new)?;
     let old_ref = heads_ref(old);
@@ -124,24 +126,7 @@ pub fn rename(repo: &gix::Repository, old: &str, new: &str, now: i64) -> Result<
         effects.head_moved = Some((format!("ref:{old_ref}"), format!("ref:{new_ref}")));
     }
 
-    // 3. The branch's pointer into the log follows the change, reflog and
-    //    all — `ff restore --at @{n}` reads exactly those lines.
-    let old_snap = format!("{BRANCH_PREFIX}{old}");
-    let new_snap = format!("{BRANCH_PREFIX}{new}");
-    if let Some(snap_tip) = refs::ref_target(repo, &old_snap)? {
-        let lines = refs::read_ref_log(repo, &old_snap)?;
-        refs::create_ref_with_log(
-            repo,
-            &new_snap,
-            snap_tip,
-            &lines,
-            now,
-            &format!("branch: renamed from {old}"),
-        )?;
-        refs::delete_ref(repo, &old_snap, snap_tip, now)?;
-    }
-
-    // 4. Parked entry follows.
+    // 3. Parked entry follows.
     if let Some(parked) = stash::parked_entry(repo, old)? {
         refs::write_ref(
             repo,
@@ -164,18 +149,16 @@ pub fn rename(repo: &gix::Repository, old: &str, new: &str, now: i64) -> Result<
         });
     }
 
-    // 5. The open commit's ref follows: derived, so it moves without a
+    // 4. The open commit's ref follows: derived, so it moves without a
     //    transition of its own.
     crate::open::rename(repo, old, new, now)?;
 
-    // 6. Metadata file follows.
-    crate::branchmeta::rename(repo, old, new)?;
+    // 5. Everything else keyed by the name follows: the pointer into the
+    //    log, the metadata, other branches' records naming this one, the
+    //    seen and published records push leases on, and the upstream.
+    carry_records(repo, old, new, now)?;
 
-    // 7. The branch's upstream follows: git's own rename carries this
-    //    section, and fufu's used to drop it.
-    crate::snapshot::config::rename_branch_section(repo, old, new)?;
-
-    // 8. Old branch ref goes last: a crash anywhere above leaves both
+    // 6. Old branch ref goes last: a crash anywhere above leaves both
     //    names resolvable.
     refs::delete_ref(repo, &old_ref, target, now)?;
     effects.transitions.push(RefTransition {
@@ -184,6 +167,32 @@ pub fn rename(repo: &gix::Repository, old: &str, new: &str, now: i64) -> Result<
         new: None,
     });
     Ok(effects)
+}
+
+/// Move the records keyed by a branch's name outside the ref table from
+/// `old` to `new`: its pointer into the log, its metadata file, every
+/// branch's record naming it (a child's parent, a hold aimed at it, a
+/// session landing on it, its own hold), its seen and published records,
+/// and its upstream section — git's own rename carries that section, and
+/// fufu's used to drop it. The refs move with their reflogs, since `ff
+/// restore --at @{n}` reads the pointer's lines. A pointer already under
+/// `new` belongs to no branch, since the rename refused a branch of that
+/// name, and is replaced. A rename runs this forward; `ff undo` of one
+/// runs it back and `ff redo` forward again, since none of it is in the
+/// ref table the undo restores.
+pub(crate) fn carry_records(repo: &gix::Repository, old: &str, new: &str, now: i64) -> Result<()> {
+    refs::move_ref_with_log(
+        repo,
+        &format!("{BRANCH_PREFIX}{old}"),
+        &format!("{BRANCH_PREFIX}{new}"),
+        now,
+        &format!("branch: renamed from {old}"),
+    )?;
+    crate::branchmeta::rename(repo, old, new)?;
+    crate::branchmeta::rename_references(repo, old, new)?;
+    crate::seen::rename(repo, old, new, now)?;
+    crate::published::rename(repo, old, new, now)?;
+    crate::snapshot::config::rename_branch_section(repo, old, new)
 }
 
 /// Point HEAD at a branch ref (symref edit, non-dereferencing).
@@ -432,6 +441,10 @@ pub fn rename_current(
         format!("ref:{}", heads_ref(&current)),
         format!("ref:{}", heads_ref(new_name)),
     ));
+    record.renamed = Some(RenameTransition {
+        old: current.clone(),
+        new: new_name.to_string(),
+    });
     verb::append_op(
         repo,
         OpKind::Op,

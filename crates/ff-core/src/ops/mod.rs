@@ -65,8 +65,8 @@ pub use id::{CommitId, OpId};
 pub use message::SegmentLink;
 pub use record::{
     ChangeIdTransition, DescriptionTransition, HeldTransition, OpRecord, ParentTransition,
-    Published, RefTransition, RefsTable, ResolveTransition, SessionTransition, StashEffect,
-    UpstreamTransition, WorktreeEffect,
+    Published, RefTransition, RefsTable, RenameTransition, ResolveTransition, SessionTransition,
+    StashEffect, UpstreamTransition, WorktreeEffect,
 };
 pub use verb::{VerbContext, begin_verb, read_ops, read_ops_from, read_ops_of, reconcile};
 pub use walk::{Operation, Run, is_op_commit, run_at};

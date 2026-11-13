@@ -920,3 +920,306 @@ fn prune_refuses_the_other_shapes() {
         assert_eq!(out.status.code(), Some(2), "{args:?}: {}", stderr(&out));
     }
 }
+
+/// Succeed or panic with both streams; the stdout.
+fn ok(out: &Output) -> String {
+    assert!(out.status.success(), "{}{}", stdout(out), stderr(out));
+    stdout(out)
+}
+
+/// The full name of every seen and published record, sorted.
+fn push_records(fx: &Fixture) -> Vec<String> {
+    let text = fx.git(&[
+        "for-each-ref",
+        "--format=%(refname)",
+        "refs/fufu/seen",
+        "refs/fufu/published",
+    ]);
+    text.lines().map(str::to_string).collect()
+}
+
+fn rev(fx: &Fixture, rev: &str) -> String {
+    fx.git(&["rev-parse", rev]).trim().to_string()
+}
+
+fn remote_rev(fx: &Fixture, rev: &str) -> String {
+    fx.remote_git(&["rev-parse", rev]).trim().to_string()
+}
+
+/// A clone standing on `old-name`, one commit above `main`, both pushed.
+fn pushed_old_name() -> Fixture {
+    let fx = Fixture::new_cloned();
+    fx.write("f", "a\n");
+    fx.commit("base");
+    fx.git(&["push", "-q", "origin", "main"]);
+    ok(&ff(&fx, &["switch", "-b", "old-name"]));
+    fx.write("f", "a\nb\n");
+    ok(&ff(&fx, &["commit", "-m", "one"]));
+    ok(&ff(&fx, &["push"]));
+    fx
+}
+
+/// The issue's repro: the branch renamed here and on the remote, the
+/// upstream re-pointed, the commit rewritten. The rename carries the seen
+/// and published records, so the lease is the tip fufu last showed and the
+/// rewrite goes out.
+#[test]
+fn describe_b_carries_the_push_records_to_a_renamed_copy() {
+    let fx = pushed_old_name();
+    ok(&ff(&fx, &["describe", "-b", "new-name"]));
+    assert_eq!(
+        push_records(&fx),
+        ["refs/fufu/published/new-name", "refs/fufu/seen/new-name"]
+    );
+
+    fx.remote_git(&["branch", "-m", "old-name", "new-name"]);
+    ok(&ff(&fx, &["git", "fetch", "-q", "--prune", "origin"]));
+    ok(&ff(
+        &fx,
+        &["git", "branch", "-q", "--set-upstream-to=origin/new-name"],
+    ));
+    ok(&ff(&fx, &["describe", "HEAD", "-m", "one, reworded"]));
+    ok(&ff(&fx, &["push", "-n", "--no-fetch"]));
+    ok(&ff(&fx, &["push"]));
+
+    assert_eq!(remote_rev(&fx, "refs/heads/new-name"), rev(&fx, "new-name"));
+    assert_eq!(
+        push_records(&fx),
+        ["refs/fufu/published/new-name", "refs/fufu/seen/new-name"]
+    );
+}
+
+/// The remote copy keeps its old name: the upstream section moved with the
+/// branch and still names it, so a rewrite pushes there under the moved
+/// lease and no copy appears under the new name.
+#[test]
+fn describe_b_keeps_pushing_to_the_old_named_copy() {
+    let fx = pushed_old_name();
+    ok(&ff(&fx, &["describe", "-b", "new-name"]));
+    ok(&ff(&fx, &["describe", "HEAD", "-m", "one, reworded"]));
+    ok(&ff(&fx, &["push"]));
+
+    assert_eq!(remote_rev(&fx, "refs/heads/old-name"), rev(&fx, "new-name"));
+    let copies = fx.remote_git(&["branch", "--format=%(refname:short)"]);
+    assert!(!copies.contains("new-name"), "{copies}");
+}
+
+/// Undo of a rename puts the push records and the upstream back under the
+/// old name, and a rewrite then pushes as it did before the rename.
+#[test]
+fn undo_of_describe_b_puts_the_push_records_back() {
+    let fx = pushed_old_name();
+    ok(&ff(&fx, &["describe", "-b", "new-name"]));
+    ok(&ff(&fx, &["undo"]));
+
+    assert_eq!(current(&fx), "old-name");
+    assert_eq!(
+        push_records(&fx),
+        ["refs/fufu/published/old-name", "refs/fufu/seen/old-name"]
+    );
+    assert_eq!(
+        fx.git(&["config", "branch.old-name.merge"]).trim(),
+        "refs/heads/old-name"
+    );
+    ok(&ff(&fx, &["describe", "HEAD", "-m", "one, reworded"]));
+    ok(&ff(&fx, &["push"]));
+    assert_eq!(remote_rev(&fx, "refs/heads/old-name"), rev(&fx, "old-name"));
+}
+
+/// `feature` holding a restack onto `main` that conflicts in `f.txt`, with
+/// HEAD on `feature`.
+fn held_feature() -> Fixture {
+    let fx = repo();
+    fx.write("f.txt", "one\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("f.txt", "two\n");
+    fx.commit("f1");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("f.txt", "three\n");
+    fx.commit("m1");
+    let held = ff(&fx, &["restack", "feature"]);
+    assert_eq!(held.status.code(), Some(3), "{}", stderr(&held));
+    ok(&ff(&fx, &["switch", "feature"]));
+    fx
+}
+
+/// Open the resolution, take a side, and land it: the branch HEAD comes
+/// back to, which `ff done` landed on.
+fn resolve_and_land(fx: &Fixture) -> String {
+    ok(&ff(fx, &["resolve"]));
+    fx.write("f.txt", "resolved\n");
+    ok(&ff(fx, &["done"]));
+    current(fx)
+}
+
+/// A hold rides the rename: `ff resolve` replans it under the new name and
+/// `ff done` lands there.
+#[test]
+fn describe_b_carries_the_hold() {
+    let fx = held_feature();
+    ok(&ff(&fx, &["describe", "-b", "feat2"]));
+
+    assert_eq!(resolve_and_land(&fx), "feat2");
+    assert_eq!(rev(&fx, "feat2~1"), rev(&fx, "main"));
+}
+
+/// Undo of the rename puts the hold back under the old name.
+#[test]
+fn undo_of_describe_b_puts_the_hold_back() {
+    let fx = held_feature();
+    ok(&ff(&fx, &["describe", "-b", "feat2"]));
+    ok(&ff(&fx, &["undo"]));
+
+    assert_eq!(current(&fx), "feature");
+    assert_eq!(resolve_and_land(&fx), "feature");
+    assert_eq!(rev(&fx, "feature~1"), rev(&fx, "main"));
+}
+
+/// `parent` forked from `main` and `child` started from it, one commit
+/// each, with `parent` then gaining `p2`. With `conflict`, `p2` and
+/// `child`'s commit both rewrite `f.txt` and `child` holds a restack onto
+/// `parent`. Leaves HEAD on `parent`.
+fn stacked(conflict: bool) -> Fixture {
+    let fx = repo();
+    fx.write("f.txt", "one\n");
+    fx.commit("base");
+    ok(&ff(&fx, &["start", "-b", "parent"]));
+    fx.write("p.txt", "p\n");
+    ok(&ff(&fx, &["commit", "-m", "p1"]));
+    ok(&ff(&fx, &["start", "parent", "-b", "child"]));
+    fx.write(if conflict { "f.txt" } else { "c.txt" }, "child\n");
+    ok(&ff(&fx, &["commit", "-m", "c1"]));
+    ok(&ff(&fx, &["switch", "parent"]));
+    fx.write(if conflict { "f.txt" } else { "p.txt" }, "p2\n");
+    ok(&ff(&fx, &["commit", "-m", "p2"]));
+    if conflict {
+        let held = ff(&fx, &["restack", "child"]);
+        assert_eq!(held.status.code(), Some(3), "{}", stderr(&held));
+    }
+    fx
+}
+
+fn parent_of(fx: &Fixture, branch: &str) -> Option<String> {
+    ff_core::branchmeta::read(&fx.repo(), branch)
+        .unwrap()
+        .parent
+}
+
+/// A child's recorded parent follows the parent's rename, so a plain
+/// restack of the child aims at the new name rather than falling to trunk.
+#[test]
+fn describe_b_moves_a_childs_parent() {
+    let fx = stacked(false);
+    ok(&ff(&fx, &["describe", "-b", "parent2"]));
+    assert_eq!(parent_of(&fx, "child").as_deref(), Some("parent2"));
+
+    ok(&ff(&fx, &["switch", "child"]));
+    let text = ok(&ff(&fx, &["restack"]));
+    assert!(text.contains("onto parent2"), "{text}");
+    assert_eq!(rev(&fx, "child~1"), rev(&fx, "parent2"));
+}
+
+/// Undo of the parent's rename puts the child's parent back.
+#[test]
+fn undo_of_describe_b_puts_a_childs_parent_back() {
+    let fx = stacked(false);
+    ok(&ff(&fx, &["describe", "-b", "parent2"]));
+    ok(&ff(&fx, &["undo"]));
+    assert_eq!(parent_of(&fx, "child").as_deref(), Some("parent"));
+}
+
+/// A child held restacking onto the renamed parent resolves onto it under
+/// the new name.
+#[test]
+fn describe_b_moves_a_hold_aimed_at_the_branch() {
+    let fx = stacked(true);
+    ok(&ff(&fx, &["describe", "-b", "parent2"]));
+    ok(&ff(&fx, &["switch", "child"]));
+
+    assert_eq!(resolve_and_land(&fx), "child");
+    assert_eq!(rev(&fx, "child~1"), rev(&fx, "parent2"));
+}
+
+/// Undo of the parent's rename aims the child's hold at the old name again.
+#[test]
+fn undo_of_describe_b_puts_a_hold_aimed_at_the_branch_back() {
+    let fx = stacked(true);
+    ok(&ff(&fx, &["describe", "-b", "parent2"]));
+    ok(&ff(&fx, &["undo"]));
+    ok(&ff(&fx, &["switch", "child"]));
+
+    assert_eq!(resolve_and_land(&fx), "child");
+    assert_eq!(rev(&fx, "child~1"), rev(&fx, "parent"));
+}
+
+/// Redo of an undone rename carries the records to the new name again.
+#[test]
+fn redo_of_describe_b_carries_the_records_again() {
+    let fx = pushed_old_name();
+    ok(&ff(&fx, &["describe", "-b", "new-name"]));
+    ok(&ff(&fx, &["undo"]));
+    ok(&ff(&fx, &["redo"]));
+
+    assert_eq!(current(&fx), "new-name");
+    assert_eq!(
+        push_records(&fx),
+        ["refs/fufu/published/new-name", "refs/fufu/seen/new-name"]
+    );
+    assert_eq!(
+        fx.git(&["config", "branch.new-name.merge"]).trim(),
+        "refs/heads/old-name"
+    );
+}
+
+/// Every branch pointer into the log, by full name, sorted.
+fn snap_pointers(fx: &Fixture) -> Vec<String> {
+    let text = fx.git(&["for-each-ref", "--format=%(refname)", "refs/fufu/snap"]);
+    text.lines().map(str::to_string).collect()
+}
+
+/// `old-name` forked from `main` with one commit closed on it.
+fn closed_old_name() -> Fixture {
+    let fx = repo();
+    ok(&ff(&fx, &["switch", "-b", "old-name"]));
+    fx.write("b.txt", "b\n");
+    ok(&ff(&fx, &["commit", "-m", "one"]));
+    fx
+}
+
+/// Undo of a rename takes the pointer into the log back to the old name,
+/// so the same rename runs again rather than colliding with a pointer left
+/// under the new name.
+#[test]
+fn describe_b_again_after_undo_takes_the_same_name() {
+    let fx = closed_old_name();
+    ok(&ff(&fx, &["describe", "-b", "new-name"]));
+    ok(&ff(&fx, &["undo"]));
+    assert_eq!(
+        snap_pointers(&fx),
+        ["refs/fufu/snap/main", "refs/fufu/snap/old-name"]
+    );
+
+    ok(&ff(&fx, &["describe", "-b", "new-name"]));
+    assert_eq!(current(&fx), "new-name");
+    assert_eq!(
+        snap_pointers(&fx),
+        ["refs/fufu/snap/main", "refs/fufu/snap/new-name"]
+    );
+}
+
+/// Undo and redo of a rename each leave the branch exactly one pointer
+/// into the log, under the name it then has.
+#[test]
+fn undo_and_redo_of_describe_b_leave_one_pointer() {
+    let fx = closed_old_name();
+    ok(&ff(&fx, &["describe", "-b", "new-name"]));
+    ok(&ff(&fx, &["undo"]));
+    ok(&ff(&fx, &["redo"]));
+
+    assert_eq!(current(&fx), "new-name");
+    assert_eq!(
+        snap_pointers(&fx),
+        ["refs/fufu/snap/main", "refs/fufu/snap/new-name"]
+    );
+}
