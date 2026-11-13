@@ -962,6 +962,50 @@ fn a_moved_copy_with_no_record_is_unseen() {
     assert_eq!(seen(&fx, "beta"), None);
 }
 
+/// No record, because git pushed the branch, and the branch rewritten
+/// since: the copy holds a commit the branch itself stood on, so its reflog
+/// vouches for the tip. The replacement goes under it and writes the record.
+#[test]
+fn a_rewrite_of_a_tip_the_branch_held_goes_with_no_record() {
+    let fx = two_topics();
+    fx.git(&["push", "-q", "-u", "origin", "alpha"]);
+    let sent = fx.git(&["rev-parse", "alpha"]).trim().to_string();
+    assert_eq!(seen(&fx, "alpha"), None);
+    fx.git(&["switch", "-q", "alpha"]);
+    fx.write("a.txt", "a, amended\n");
+    fx.git(&["commit", "-q", "-a", "--amend", "-m", "a1, amended"]);
+    let tip = fx.git(&["rev-parse", "alpha"]).trim().to_string();
+    assert_ne!(tip, sent);
+
+    let text = ok(&ff(&fx, &["push"]));
+    assert_eq!(text, format!("pushed alpha to origin/alpha\n{TAIL}"));
+    assert_eq!(remote_tip(&fx, "alpha").as_deref(), Some(tip.as_str()));
+    assert_eq!(seen(&fx, "alpha").as_deref(), Some(tip.as_str()));
+}
+
+/// A teammate's commit taken into the branch outside fufu, by a merge, and
+/// then dropped again: the record still names the tip fufu last showed, but
+/// the branch stood on a commit holding the copy's tip, so the person had
+/// it in hand and the push that drops it goes.
+#[test]
+fn a_copy_the_branch_held_through_a_merge_can_be_replaced() {
+    let fx = two_topics();
+    let theirs = beta_moved_under_alpha_and_beta(&fx);
+    let sent = seen(&fx, "beta").expect("the push recorded the tip it sent");
+    fx.git(&["fetch", "-q"]);
+    fx.git(&["switch", "-q", "beta"]);
+    let mine = fx.git(&["rev-parse", "beta"]).trim().to_string();
+    fx.git(&["merge", "-q", "--no-edit", "origin/beta"]);
+    fx.git(&["reset", "-q", "--hard", &mine]);
+    assert_eq!(seen(&fx, "beta").as_deref(), Some(sent.as_str()));
+
+    let output = ff(&fx, &["push"]);
+    assert!(output.status.success(), "{}", out(&output));
+    assert_eq!(remote_tip(&fx, "beta").as_deref(), Some(mine.as_str()));
+    assert_eq!(seen(&fx, "beta").as_deref(), Some(mine.as_str()));
+    assert_ne!(mine, theirs);
+}
+
 /// `ff pull` writes the record for every branch whose shared copy it read,
 /// and only on a real run: a dry run fetches and leaves the record where
 /// it was; a real run moves it to the tip read, whether the axis replayed,

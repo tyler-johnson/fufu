@@ -367,7 +367,7 @@ ff undo then ff push rolls the shared copy back, under a lease
 ```
 <!-- /transcript -->
 
-The first [`ff push`](../reference/cli/push.md) publishes the original commit. Describe reports that it rewrote published work but sends nothing. The second push sends the new commit under a lease: the remote ref must match the expected value, and replacing commits also requires agreement between the seen record and tracking tip. Fast-forwards have a seen-record exception. There is no ownership check or special protection for main; team policy and server-side branch protection decide what may be sent.
+The first [`ff push`](../reference/cli/push.md) publishes the original commit. Describe reports that it rewrote published work but sends nothing. The second push sends the new commit under a lease: the remote ref must match the expected value, and replacing commits also requires agreement between the seen record and tracking tip. Fast-forwards, and replacements of a tip the branch itself once held, have a seen-record exception. There is no ownership check or special protection for main; team policy and server-side branch protection decide what may be sent.
 
 If the remote moved, [pull and inspect the reconciliation](recovery.md#someone-force-pushed-over-my-branch) before retrying. [`ff pull`](../reference/cli/pull.md) can drop a local version when the target contains the same change ID, even if their content differs. A held branch cannot be pushed until its hold is resolved or abandoned. Undo reaches local state; a remote rollback requires another permitted push. [Pulling and pushing](../concepts/push-boundary.md) has the complete contract.
 

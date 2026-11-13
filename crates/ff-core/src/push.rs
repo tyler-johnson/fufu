@@ -158,9 +158,11 @@ pub fn push(
 /// record was moved by a fetch behind fufu's back, and a lease read from it
 /// would vouch for a tip nobody looked at. A fast-forward of the tracking
 /// tip goes whatever the record says, since no lease value can take
-/// anything off the copy; that is also how a branch with no record at all
-/// — one from before the record existed, or whose upstream git set — gets
-/// one, written by [`record`] afterwards.
+/// anything off the copy. So does a replacement of a tracking tip the
+/// branch's own reflog shows it holding, since the person had those
+/// commits in hand. Either is how a branch with no record at all — one
+/// from before the record existed, or whose upstream git set — gets one,
+/// written by [`record`] afterwards.
 pub fn plan(repo: &gix::Repository, pre: &Preflight) -> Result<Push> {
     let push = if crate::held::of(repo, &pre.branch)?.is_some() {
         // The exits-blocked discipline: a held rewrite means the branch's
@@ -182,7 +184,7 @@ pub fn plan(repo: &gix::Repository, pre: &Preflight) -> Result<Push> {
                     },
                     Some(tracking) if tracking.tip == Some(tip) => Push::UpToDate,
                     Some(tracking) => {
-                        if let Some(why) = refuse(repo, tracking, tip)? {
+                        if let Some(why) = refuse(repo, &pre.branch, tracking, tip)? {
                             return Ok(Push::Refused {
                                 remote: remote.clone(),
                                 remote_branch: tracking.remote_branch.clone(),
@@ -220,9 +222,12 @@ pub fn plan(repo: &gix::Repository, pre: &Preflight) -> Result<Push> {
 /// first copy or a re-creation. A fast-forward of the tracking tip is
 /// never refused either, whatever the record says: it sends commits and
 /// takes none off, so there is nothing a lease could be vouching for, and
-/// the wire still catches a move that lands after this reading.
+/// the wire still catches a move that lands after this reading. A tracking
+/// tip the branch itself once held is not refused either, record or none:
+/// see [`crate::seen::held`].
 fn refuse(
     repo: &gix::Repository,
+    branch: &str,
     tracking: &crate::preflight::Tracking,
     tip: gix::ObjectId,
 ) -> Result<Option<crate::model::Refusal>> {
@@ -238,7 +243,7 @@ fn refuse(
         .into_iter()
         .map(|id| id.detach())
         .collect();
-    if bases.contains(&now) {
+    if bases.contains(&now) || crate::seen::held(repo, branch, now) {
         return Ok(None);
     }
     let behind = crate::upstream::count_exclusive(repo, now, &bases)?;
@@ -542,6 +547,46 @@ mod tests {
                 Push::Push { lease, .. } => assert_eq!(lease, ""),
                 other => panic!("no tracking ref: {other:?}"),
             }
+        }
+    }
+
+    /// A tracking tip the branch's own reflog held is vouched for, record or
+    /// none: stood on directly, or held inside a merge the branch stood on
+    /// and left again. Moving only the tracking ref, the way a fetch does,
+    /// never vouches, and neither does another branch holding the tip.
+    #[test]
+    fn a_tracking_tip_the_branch_held_is_not_refused() {
+        let (fx, root, a, theirs) = tracked();
+        fx.git(&["update-ref", "refs/remotes/origin/main", &theirs]);
+        assert!(!crate::seen::held(
+            &fx.repo(),
+            "main",
+            theirs.parse().unwrap()
+        ));
+
+        let tree = format!("{a}^{{tree}}");
+        let merge = fx
+            .git(&["commit-tree", &tree, "-p", &a, "-p", &theirs, "-m", "merge"])
+            .trim()
+            .to_string();
+        fx.git(&["update-ref", "refs/heads/main", &merge]);
+        fx.git(&["update-ref", "refs/heads/main", &a]);
+        for seen in [None, Some(root.as_str())] {
+            match plan_main(&fx, Some(&theirs), seen) {
+                Push::Push { lease, tip, .. } => {
+                    assert_eq!(lease, theirs);
+                    assert_eq!(tip, a);
+                }
+                other => panic!("held through a merge, record {seen:?}: {other:?}"),
+            }
+        }
+
+        let (fx, _, a, theirs) = tracked();
+        fx.git(&["update-ref", "refs/heads/main", &theirs]);
+        fx.git(&["update-ref", "refs/heads/main", &a]);
+        match plan_main(&fx, Some(&theirs), None) {
+            Push::Push { lease, .. } => assert_eq!(lease, theirs),
+            other => panic!("held directly: {other:?}"),
         }
     }
 

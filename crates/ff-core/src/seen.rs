@@ -30,7 +30,8 @@
 //! seen.
 //!
 //! Failure points the safe way: an unreadable or absent record answers
-//! *none*, and push treats none as a copy it cannot vouch for.
+//! *none*, and push treats none as a copy it cannot vouch for unless the
+//! branch's own reflog shows it holding the tip, which [`held`] reads.
 
 use crate::error::Result;
 
@@ -64,6 +65,59 @@ pub(crate) fn mark(
         now,
         "seen: the shared copy stood here",
     )
+}
+
+/// Whether `branch` itself ever held `tip`: its reflog stood on `tip` or on
+/// a commit descending from it. That is the evidence for a copy no record
+/// vouches for, a branch pushed by git or before the record existed, or a
+/// merge taken in outside fufu. A fetch moves only the tracking ref, so it
+/// can never put a tip here; a branch holding it had those commits in hand,
+/// and a push replacing them is the person's decision about their own
+/// history. The walk stops at commits older than `tip`, so clock skew can
+/// only miss a tip, and anything unreadable answers no.
+pub(crate) fn held(repo: &gix::Repository, branch: &str, tip: gix::ObjectId) -> bool {
+    let Ok(lines) = crate::refs::read_ref_log(repo, &format!("refs/heads/{branch}")) else {
+        return false;
+    };
+    let mut stood: Vec<gix::ObjectId> = lines
+        .iter()
+        .map(|line| line.new)
+        .filter(|id| !id.is_null())
+        .collect();
+    stood.sort();
+    stood.dedup();
+    if stood.binary_search(&tip).is_ok() {
+        return true;
+    }
+    let Ok(Some(seconds)) = repo
+        .find_commit(tip)
+        .map(|commit| commit.time().ok().map(|time| time.seconds))
+    else {
+        return false;
+    };
+    // Entries gc has collected cannot start a walk, and are no evidence.
+    stood.retain(|id| repo.has_object(id));
+    if stood.is_empty() {
+        return false;
+    }
+    let Ok(walk) = repo
+        .rev_walk(stood)
+        .sorting(gix::revision::walk::Sorting::ByCommitTimeCutoff {
+            order: gix::traverse::commit::simple::CommitTimeOrder::NewestFirst,
+            seconds,
+        })
+        .all()
+    else {
+        return false;
+    };
+    for info in walk {
+        match info {
+            Ok(info) if info.id == tip => return true,
+            Ok(_) => {}
+            Err(_) => return false,
+        }
+    }
+    false
 }
 
 /// Mark `branch`'s shared copy seen at the tip its tracking ref holds now,

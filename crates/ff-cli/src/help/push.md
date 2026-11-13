@@ -26,7 +26,7 @@ A branch without a remote copy gets one with tracking configured. An upstream na
 
 ### Leases, holds, and refusals
 
-Replacing remote commits requires agreement between the tracking tip and fufu's seen record. `ff pull`, switching onto a remote branch, cloning, and successful pushes update that record. A fast-forward can proceed without the agreement because it removes no commits. A background fetch or pull dry run updates tracking refs without updating the seen record.
+Replacing remote commits requires agreement between the tracking tip and fufu's seen record. `ff pull`, switching onto a remote branch, cloning, and successful pushes update that record. A fast-forward can proceed without the agreement because it removes no commits. So can a push replacing a tracking tip the branch itself once held, as its reflog shows: standing on that commit or on one containing it, such as after a Git push, a Git merge, or an amend. A background fetch or pull dry run updates tracking refs without updating the seen record, and never moves the branch.
 
 Push itself can auto-fetch on `fufu.autoFetch`'s cadence. Fetching does not authorize replacing an unseen remote tip; the wire lease also catches changes made after planning. A refused lease requires inspecting and incorporating the remote state before trying again.
 

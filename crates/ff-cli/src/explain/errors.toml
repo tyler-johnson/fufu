@@ -664,13 +664,13 @@ exits = ["ff remote", "ff git ls-remote <remote>", "ff status"]
 [[entry]]
 id = "push/lease-refused"
 summary = "the expected remote tip no longer permits this push"
-detail = "Run ff pull <branch>, review incoming work and any hold, then retry the push when the branch is ready. A replacing push requires its seen record to agree with the tracking tip; a fast-forward may proceed without that agreement. The send also checks the expected tracking tip at the remote, with an empty expectation for a new copy. Either a local mismatch or a remote race can refuse this branch. Other branches may already have been sent; a lease is not a team-policy or ownership check."
+detail = "Run ff pull <branch>, review incoming work and any hold, then retry the push when the branch is ready. A replacing push requires its seen record to agree with the tracking tip; a fast-forward, or a replacement of a tip the branch's own reflog shows it holding, may proceed without that agreement. The send also checks the expected tracking tip at the remote, with an empty expectation for a new copy. Either a local mismatch or a remote race can refuse this branch. Other branches may already have been sent; a lease is not a team-policy or ownership check."
 exits = ["ff pull <branch>", "ff status"]
 
 [[entry]]
 id = "push/unseen"
 summary = "replacing remote commits requires a seen record that is missing"
-detail = "Run ff pull <branch> to fetch and report its remote copy, inspect the result, and resolve any hold before pushing. A fetch alone does not establish the seen record. A fast-forward of the cached tracking tip is allowed without one, but this push would replace commits outside the local branch's history. This branch was refused before its send; a multi-branch run may still send other branches."
+detail = "Run ff pull <branch> to fetch and report its remote copy, inspect the result, and resolve any hold before pushing. A fetch alone does not establish the seen record. A fast-forward of the cached tracking tip is allowed without one, and so is replacing a tip the branch's own reflog shows it holding, but this push would replace commits the local branch never held. This branch was refused before its send; a multi-branch run may still send other branches."
 exits = ["ff pull <branch>", "ff status"]
 
 [[entry]]
