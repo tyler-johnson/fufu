@@ -12,6 +12,7 @@
 - `ff resolve` on a held arrival with a binary or modify/delete conflict said the parked change applied cleanly and left the branch's version in the working copy. It now keeps your version and lists the file apart from the marked ones. JSON: `laid.kept`, and `laid.paths` now lists only files with markers.
 - On Windows, `ff resolve` failed with "invalid filename" on a conflict between a file and a directory, because gix names the side it moves aside after a label carrying a quote. That name now has `_` in place of each character Windows forbids, on every platform.
 - `ff status`, [`ff diff`](docs/reference/cli/diff.md), [`ff show`](docs/reference/cli/show.md), [`ff log -p`](docs/reference/cli/log.md), [`ff op diff`](docs/reference/cli/op-diff.md), and [`ff evolog`](docs/reference/cli/evolog.md) failed with "Can only diff blobs and links, not Commit" on a change that added, removed, or retargeted a gitlink, including an embedded repository picked up by a snapshot. A gitlink now measures as one line, `Subproject commit <id>`, as in git. (#23)
+- `ff switch`, `ff restore`, [`ff worktree`](docs/reference/cli/worktree.md), and the other verbs that move the working copy left no directory for a gitlink, so the next snapshot recorded it as deleted and a plain `ff commit` dropped it. They now create an empty one, as git's checkout does. Leaving a gitlink removes its directory only when empty; before, that failed with "Is a directory" partway through the move.
 
 ### Known issues
 

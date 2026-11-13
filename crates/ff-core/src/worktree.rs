@@ -1,8 +1,9 @@
 //! Worktree materialization: apply the file-level difference between two
 //! trees to the working directory. The single writer restore and switch
 //! share — deletions prune emptied directories, blobs go through the filter
-//! pipeline, writes are atomic (temp file + rename), gitlinks are reported
-//! but never touched.
+//! pipeline, writes are atomic (temp file + rename). A gitlink gets an empty
+//! directory, as git's checkout makes one, and its contents are never
+//! touched.
 
 use std::io::Read;
 use std::path::Path;
@@ -18,7 +19,9 @@ pub(crate) struct Transition {
     pub written: Vec<String>,
     /// Files deleted because the `to` tree does not contain them.
     pub deleted: Vec<String>,
-    /// Gitlinks (embedded repositories) present in the diff but not touched.
+    /// Gitlinks (embedded repositories) present in the diff whose contents
+    /// were not touched. An arriving gitlink gets an empty directory, as git's
+    /// checkout makes one; a leaving one keeps a non-empty directory.
     pub skipped_gitlinks: Vec<String>,
 }
 
@@ -38,7 +41,7 @@ pub(crate) fn apply_tree_transition(
     // Deletions first: a directory becoming a file has to be emptied, and so pruned, before the file is written where it stood.
     let (mut changes, materialize): (Vec<_>, Vec<_>) = tree_changes(repo, from, to)?
         .into_iter()
-        .partition(|c| matches!(c.action, Action::DeleteFromWorktree));
+        .partition(|c| matches!(c.action, Action::DeleteFromWorktree { .. }));
     changes.extend(materialize);
     let mut out = Transition::default();
     let (mut pipeline, _index) = repo.filter_pipeline(None).map_err(Error::repo)?;
@@ -48,8 +51,29 @@ pub(crate) fn apply_tree_transition(
             continue;
         }
         match change.action {
-            Action::DeleteFromWorktree => {
+            Action::DeleteFromWorktree { gitlink } => {
                 let abs = workdir.join(&change.path);
+                // A gitlink's directory goes only when empty: a populated
+                // submodule or embedded repository keeps its contents, as
+                // git's `unable to rmdir` leaves them.
+                if gitlink && std::fs::symlink_metadata(&abs).is_ok_and(|md| md.is_dir()) {
+                    match std::fs::remove_dir(&abs) {
+                        Ok(()) => {
+                            prune_empty_parents(&workdir, &abs);
+                            out.deleted.push(change.path);
+                        }
+                        Err(err) if err.kind() == std::io::ErrorKind::DirectoryNotEmpty => {
+                            out.skipped_gitlinks.push(change.path);
+                        }
+                        Err(err) => {
+                            return Err(Error::msg(format!(
+                                "could not delete {}: {err}",
+                                change.path
+                            )));
+                        }
+                    }
+                    continue;
+                }
                 match std::fs::remove_file(&abs) {
                     Ok(()) => {
                         prune_empty_parents(&workdir, &abs);
@@ -75,7 +99,15 @@ pub(crate) fn apply_tree_transition(
             Action::Materialize { oid, kind } => {
                 use gix::objs::tree::EntryKind;
                 match kind {
+                    // An empty directory, as git's checkout makes one. An
+                    // existing directory is left as it stands; a file or
+                    // symlink in its place goes.
                     EntryKind::Commit => {
+                        let abs = workdir.join(&change.path);
+                        if !std::fs::symlink_metadata(&abs).is_ok_and(|md| md.is_dir()) {
+                            let _ = std::fs::remove_file(&abs);
+                            std::fs::create_dir_all(&abs).map_err(Error::repo)?;
+                        }
                         out.skipped_gitlinks.push(change.path);
                     }
                     EntryKind::Tree => {}
@@ -141,7 +173,9 @@ pub(crate) fn apply_tree_transition(
 }
 
 enum Action {
-    DeleteFromWorktree,
+    /// `gitlink` when the leaving entry is a gitlink, whose path is a
+    /// directory rather than a file.
+    DeleteFromWorktree { gitlink: bool },
     Materialize {
         oid: gix::ObjectId,
         kind: gix::objs::tree::EntryKind,
@@ -170,7 +204,7 @@ pub(crate) fn count_tree_transition(
                 Action::Materialize {
                     kind: gix::objs::tree::EntryKind::Commit,
                     ..
-                }
+                } | Action::DeleteFromWorktree { gitlink: true }
             )
         })
         .count())
@@ -226,7 +260,9 @@ fn tree_changes(
                 if !entry_mode.is_tree() {
                     out.push(PathChange {
                         path: path.to_string(),
-                        action: Action::DeleteFromWorktree,
+                        action: Action::DeleteFromWorktree {
+                            gitlink: entry_mode.is_commit(),
+                        },
                     });
                 }
             }
