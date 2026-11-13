@@ -364,6 +364,82 @@ fn concurrent_takes_never_error() {
     assert!(!chain.is_empty());
 }
 
+/// Race `threads` captures on the fixture's working copy, each through its
+/// own repository handle, and return what each one reported.
+fn race_captures(fx: &Fixture, threads: usize) -> Vec<ff_core::Result<CaptureOutcome>> {
+    let dir = fx.path();
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..threads)
+            .map(|_| {
+                let dir = dir.clone();
+                scope.spawn(move || {
+                    let repo = ff_core::discover_isolated(&dir).expect("discover");
+                    ff_core::capture_with(
+                        &repo,
+                        &Provenance::new("manual", None),
+                        &TakeOptions::default(),
+                    )
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    })
+}
+
+/// Every round starts on a fresh branch, whose open change has no id yet, so
+/// every round's racers reach the mint and its metadata write. Those writes
+/// shared one temp file per process, and a racer whose temp file another had
+/// already renamed away failed with "file not found".
+#[test]
+fn concurrent_takes_never_error_under_stress() {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Race User");
+    fx.set_config("user.email", "race@test");
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    for round in 0..24 {
+        fx.git(&["checkout", "-q", "-b", &format!("round-{round}")]);
+        fx.write("a.txt", &format!("round {round}\n"));
+        let results = race_captures(&fx, 8);
+        let errors: Vec<_> = results.iter().filter(|r| r.is_err()).collect();
+        assert!(
+            errors.is_empty(),
+            "round {round}: a racing capture errored: {errors:?}"
+        );
+    }
+}
+
+/// Racing captures from a branch with no change id each used to mint their
+/// own letters, and the metadata could keep a loser's letters while the open
+/// commit that landed wore the winner's. The letters the metadata holds are
+/// the ones the landed open commit wears.
+#[test]
+fn concurrent_takes_agree_on_the_change_id() {
+    let fx = Fixture::new();
+    fx.set_config("user.name", "Race User");
+    fx.set_config("user.email", "race@test");
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+
+    for round in 0..24 {
+        let branch = format!("agree-{round}");
+        fx.git(&["checkout", "-q", "-b", &branch]);
+        fx.write("a.txt", &format!("agree {round}\n"));
+        for result in race_captures(&fx, 8) {
+            result.expect("a racing capture must not error");
+        }
+        let open = fx.git(&["rev-parse", &format!("refs/fufu/open/{branch}")]);
+        let fields = commit_fields(&fx, open.trim());
+        let meta = ff_core::branchmeta::read(&fx.repo(), &branch).expect("meta");
+        assert_eq!(
+            meta.change_id.as_deref(),
+            Some(fields["change-id"].as_str()),
+            "round {round}: the metadata holds the landed open commit's letters"
+        );
+    }
+}
+
 #[test]
 fn evolog_orders_snapshots_with_edges() {
     let fx = Fixture::new();

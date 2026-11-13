@@ -329,7 +329,7 @@ fn write_index(file_path: &Path, tip: &str, sorted: &[String]) -> std::io::Resul
 
     let tmp = parent.join(format!(
         ".tmp-{}-{}",
-        std::process::id(),
+        crate::jsonfile::temp_tag(),
         file_path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())

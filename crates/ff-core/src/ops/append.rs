@@ -169,16 +169,24 @@ pub(crate) fn commit_op(repo: &gix::Repository, draft: &OpDraft, now: i64) -> Re
             },
         };
         let overlay = open::Overlay::of(draft.record.as_ref(), &draft.branch);
-        // A verb that leaves a dirty tree on a branch with no id yet mints
-        // one, as a capture does before its append: the open commit is the
-        // park, and an op that stated `none` for want of an id would leave
-        // the branch unable to be left. A record that sets the id itself is
-        // the authority and is left alone.
-        if draft.kind != OpKind::Capture
-            && overlay.change_id.is_none()
-            && draft.branch != crate::snapshot::chain::DETACHED
-            && Some(draft.tree) != head_tree_of(repo, head_after)
-        {
+        // The open change's identity, minted here under the lock so the read
+        // of the metadata, the mint, and the plan that writes the letters
+        // into the open commit are one span no other capture or verb on this
+        // chain can enter. Minted before the lock, two racing captures each
+        // read no id, each minted and wrote their own, and the metadata could
+        // keep the letters of the one whose CAS lost.
+        //
+        // A capture that appends mints, so the open commit it writes wears
+        // the letters the close will land. A verb that leaves a dirty tree on
+        // a branch with no id yet mints too: the open commit is the park, and
+        // an op that stated `none` for want of an id would leave the branch
+        // unable to be left. A record that sets the id itself is the
+        // authority and is left alone. A detached tree closes nothing.
+        let mints = match draft.kind {
+            OpKind::Capture => true,
+            _ => overlay.change_id.is_none() && Some(draft.tree) != head_tree_of(repo, head_after),
+        };
+        if mints && draft.branch != crate::snapshot::chain::DETACHED {
             mint_change_id(repo, &draft.branch, now)?;
         }
         let open_commit =
@@ -564,8 +572,9 @@ pub(crate) fn worktree_tree(
 }
 
 /// Give a branch's open change an id and a birth when it has none and is
-/// not a session. Written only on the appending path — a capture that
-/// no-ops writes nothing, so an unchanged tree keeps a read verb read-only.
+/// not a session. Written only on the appending path, under the log's lock —
+/// a capture that no-ops or is contended writes nothing, so an unchanged
+/// tree keeps a read verb read-only.
 /// An id minted before births were kept gets its birth here, once.
 fn mint_change_id(repo: &gix::Repository, branch: &str, now: i64) -> Result<()> {
     let mut meta = crate::branchmeta::read(repo, branch)?;
@@ -596,11 +605,13 @@ pub fn capture(repo: &gix::Repository, prov: &Provenance) -> Result<CaptureOutco
 /// never opened for writing. A crash leaves at worst orphan objects for gc.
 /// The one exception is the branch's metadata file under
 /// `<common>/fufu/branch/`: the first capture that appends on a branch whose
-/// open change has no id yet mints one there, before the append, so the open
-/// commit the append writes wears the letters the close will land. Read
-/// verbs therefore write that one file. The mint is not journaled: an undo
-/// and redo of a close can leave the remainder with a different id than it
-/// had between them, and nobody saw the first one on a commit.
+/// open change has no id yet mints one there, inside the append and under
+/// the log's lock, so the open commit the append writes wears the letters
+/// the close will land, and two racing captures cannot each mint their own.
+/// A capture that loses the lock writes nothing. Read verbs therefore write
+/// that one file. The mint is not journaled: an undo and redo of a close can
+/// leave the remainder with a different id than it had between them, and
+/// nobody saw the first one on a commit.
 pub fn capture_with(
     repo: &gix::Repository,
     prov: &Provenance,
@@ -714,16 +725,8 @@ pub fn capture_with(
         warnings.extend(crate::ops::verb::reconcile(repo, now)?.warnings);
     }
 
-    // The open change's identity, minted by the capture that first records
-    // it — before the append, so the open commit that append writes wears
-    // it and no open commit ever lacks one. Only a branch has an open
-    // change, born or not; a session's content is an amendment of the
-    // commit under it, whose id it already wears; a detached tree closes
-    // nothing.
-    if !matches!(head, crate::model::HeadState::Detached { .. }) {
-        mint_change_id(repo, &branch, now)?;
-    }
-
+    // The open change's identity is minted inside the append, under the
+    // log's lock, by the capture that first records it: see `commit_op`.
     let draft = OpDraft {
         kind: OpKind::Capture,
         subject: prov.subject(),

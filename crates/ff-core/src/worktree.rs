@@ -299,7 +299,7 @@ pub(crate) fn write_atomic(
     std::fs::create_dir_all(&parent).map_err(Error::repo)?;
     let tmp = parent.join(format!(
         ".ff-restore-{}-{}",
-        std::process::id(),
+        crate::jsonfile::temp_tag(),
         abs.file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default()

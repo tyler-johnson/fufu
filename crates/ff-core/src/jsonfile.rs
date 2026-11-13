@@ -6,8 +6,24 @@
 
 use std::io::Write as _;
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::error::{Error, Result};
+
+/// A token no other temp file of this process or another live one carries:
+/// the pid, plus a per-process counter. The pid alone is shared by every
+/// writer in one process (threads, an in-process server), and two of them
+/// writing the same file would share a temp path, so one renames it away
+/// and the other's rename fails with "not found", or truncates a temp file
+/// the other is midway through.
+pub(crate) fn temp_tag() -> String {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    format!(
+        "{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    )
+}
 
 /// Read and deserialize a JSON file; an absent file is `Ok(None)`.
 pub(crate) fn read<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T>> {
@@ -29,7 +45,7 @@ pub(crate) fn write<T: serde::Serialize>(path: &Path, value: &T) -> Result<()> {
     let bytes = serde_json::to_vec_pretty(value).map_err(|err| Error::msg(err.to_string()))?;
     let tmp = parent.join(format!(
         ".tmp-{}-{}",
-        std::process::id(),
+        temp_tag(),
         path.file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default()

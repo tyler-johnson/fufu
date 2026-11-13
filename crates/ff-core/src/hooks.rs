@@ -175,17 +175,20 @@ pub fn post_commit(repo: &gix::Repository) {
 }
 
 /// The message file both message hooks edit in place, deleted on drop.
-/// Pid-suffixed rather than git's own `COMMIT_EDITMSG`: two fufu processes
-/// in one repository must not edit each other's message, which is worth more
-/// than the handful of hooks that hardcode git's path.
+/// Suffixed with [`crate::jsonfile::temp_tag`] rather than git's own
+/// `COMMIT_EDITMSG`: two fufu writers in one repository must not edit each
+/// other's message, which is worth more than the handful of hooks that
+/// hardcode git's path.
 struct MessageFile {
     path: PathBuf,
 }
 
 impl MessageFile {
     fn write(repo: &gix::Repository, message: &str) -> Result<Self> {
-        let path =
-            absolute(repo.git_dir())?.join(format!("COMMIT_EDITMSG.fufu-{}", std::process::id()));
+        let path = absolute(repo.git_dir())?.join(format!(
+            "COMMIT_EDITMSG.fufu-{}",
+            crate::jsonfile::temp_tag()
+        ));
         std::fs::write(&path, message).map_err(Error::repo)?;
         Ok(Self { path })
     }
