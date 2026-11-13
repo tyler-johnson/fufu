@@ -26,9 +26,9 @@
 //! event; the capture it takes on an unchanged tree adds nothing.
 //! `shell.env`, 1.x only, sets `OPENCODE_SESSION_ID` on every shell
 //! command — the bash tool's and the TUI's `!` shell — so a shell verb
-//! under 1.x carries the session its hook captures do. 2.x's shell hook
-//! carries no session id, so under 2.x a shell verb is untagged. The
-//! trigger runs through `node:child_process`, which both runtimes have.
+//! under 1.x carries the session its hook captures do. 2.x's shell tool
+//! sets the variable itself, so the plugin registers no shell hook there.
+//! The trigger runs through `node:child_process`, which both runtimes have.
 //!
 //! Wiring is a byte comparison of one file: equal to what this binary
 //! writes is wired; fufu's header with other bytes — a moved binary, an

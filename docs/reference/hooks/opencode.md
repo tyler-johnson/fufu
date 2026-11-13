@@ -96,8 +96,7 @@ export default {
 
   async setup(ctx) {
     const cwd = ctx.location.directory;
-    // No shell hook: 2.x's `create.before` carries no session id, so
-    // OPENCODE_SESSION_ID is not set under 2.x.
+    // No shell hook: 2.x's shell tool sets OPENCODE_SESSION_ID itself.
     const registrations = [
       // The standing briefing, as above: `context` runs before every model request.
       await ctx.session.hook("context", async (event) => {
@@ -120,7 +119,7 @@ The plugin is one file with two halves, so it loads on both OpenCode lines. Open
 
 - `tool.execute.before` (2.x: `execute.before`) attempts capture before every tool call. The tool's name and arguments supply snapshot labels and the Git-policy tally. OpenCode discards the hook's output, so no coaching or denial reaches the model, including under strict policy.
 - `experimental.chat.system.transform` (2.x: `context`) includes the briefing in the system prompt on every model call, including after compaction. It also attempts capture; an unchanged tree adds no snapshot.
-- `shell.env` supplies `OPENCODE_SESSION_ID` to shell commands so their fufu operations use the same session tag as hook captures. OpenCode 2.x has no equivalent, so shell commands under 2.x carry no `OPENCODE_SESSION_ID` and their fufu operations are not tagged with the session.
+- `shell.env` supplies `OPENCODE_SESSION_ID` to shell commands so their fufu operations use the same session tag as hook captures. OpenCode 2.x's shell tool sets `OPENCODE_SESSION_ID` itself, so the `setup` half registers no shell hook.
 
 `ff hook -l` compares the plugin with the version this binary would write. A file with fufu's ownership header but different content is reported as stale; `ff hook -u` replaces it. A file without that header is reported as hand-written and is never rewritten or removed.
 

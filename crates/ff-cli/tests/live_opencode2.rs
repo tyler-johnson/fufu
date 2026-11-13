@@ -8,11 +8,11 @@
 //! `opencode.json`: the standing briefing in the system prompt of the
 //! first agent-loop request (the `context` hook; 2.x's first request names
 //! the session and declares no tools), and the `ff op log` output
-//! carried back on the next turn, whose top entry is a capture the
-//! plugin's hooks took
-//! under the session OpenCode named. 2.x's shell hook carries no session
-//! id, so no `OPENCODE_SESSION_ID` is set and no shell verb's session tag
-//! is asserted. `--standalone` is mandatory: it runs a private server that
+//! carried back on the next turn, holding a commit run from the shell tool
+//! and the captures the plugin's hooks took, all under the session OpenCode
+//! named. The commit's tag comes from the `OPENCODE_SESSION_ID` 2.x's shell
+//! tool sets itself; the plugin has no shell hook under 2.x.
+//! `--standalone` is mandatory: it runs a private server that
 //! exits with the command and never touches the background service. No
 //! model judges anything.
 //!
@@ -27,8 +27,8 @@ use std::time::Duration;
 use ff_testsupport::mock_model::MockModel;
 use serde_json::Value;
 use support::{
-    NOTICE_HEAD, OP_LOG_MARKER, captured_under, client_env, commands, hook, live_client,
-    op_log_from, repo, run_within, scratch_home,
+    NOTICE_HEAD, OP_LOG_MARKER, TOUCH, client_env, ff_bin, hook, live_client, op_log_from, repo,
+    run_within, scratch_home,
 };
 
 #[test]
@@ -37,6 +37,10 @@ fn an_opencode2_session_carries_the_briefing_and_its_hooks_capture() {
         return;
     };
     let fx = repo();
+    // The client's environment has no global identity, and the commit below
+    // needs one.
+    fx.git(&["config", "user.name", "Live Test"]);
+    fx.git(&["config", "user.email", "live@example.com"]);
     let home = scratch_home(&fx, ".config/opencode");
     // The adapter honors `XDG_CONFIG_HOME`, which `client_env` and `hook`
     // both point at `home/xdg`, so the plugin lands where the client
@@ -47,7 +51,14 @@ fn an_opencode2_session_carries_the_briefing_and_its_hooks_capture() {
 
     // The mock as a custom provider: the OpenAI-compatible package posts
     // to `/v1/chat/completions`, the dialect the mock speaks for Qwen.
-    let commands = commands();
+    // A shell verb between the two: 2.x's shell tool sets
+    // `OPENCODE_SESSION_ID` itself, so the commit is recorded under the
+    // session, and the op log reaches back far enough to read it.
+    let commands = [
+        TOUCH.to_string(),
+        format!("{} commit -m live", ff_bin()),
+        format!("{} op log --json -n 5", ff_bin()),
+    ];
     let model = MockModel::start(
         &commands.iter().map(String::as_str).collect::<Vec<_>>(),
         OP_LOG_MARKER,
@@ -123,7 +134,31 @@ fn an_opencode2_session_carries_the_briefing_and_its_hooks_capture() {
             text.contains(OP_LOG_MARKER).then_some(text)
         })
         .unwrap_or_else(|| panic!("no tool_use carrying the op log envelope in {stdout}"));
-    captured_under(&op_log_from(&output), "opencode", &session_id);
+    let envelope = op_log_from(&output);
+    let ops = envelope["data"]["ops"].as_array().expect("an ops list");
+    // The commit ran from the shell tool, so its session came from
+    // `OPENCODE_SESSION_ID` in its environment, not from a hook.
+    let commit = ops
+        .iter()
+        .find(|op| op["kind"] != "capture")
+        .unwrap_or_else(|| panic!("no operation besides captures: {envelope}"));
+    assert_eq!(
+        commit["session"], session_id,
+        "the shell verb's session: {envelope}"
+    );
+    // And the hooks still capture under the same session.
+    let prefix = format!(
+        "opencode[{}]: ",
+        session_id.chars().take(8).collect::<String>()
+    );
+    assert!(
+        ops.iter().any(|op| op["kind"] == "capture"
+            && op["session"] == session_id
+            && op["summary"]
+                .as_str()
+                .is_some_and(|s| s.starts_with(&prefix))),
+        "a hook capture under the session ({prefix:?}): {envelope}"
+    );
     assert!(fx.path().join("b.txt").is_file(), "the first command ran");
 
     // The standing briefing is in the first request's system prompt, and

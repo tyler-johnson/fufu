@@ -55,8 +55,7 @@ export default {
 
   async setup(ctx) {
     const cwd = ctx.location.directory;
-    // No shell hook: 2.x's `create.before` carries no session id, so
-    // OPENCODE_SESSION_ID is not set under 2.x.
+    // No shell hook: 2.x's shell tool sets OPENCODE_SESSION_ID itself.
     const registrations = [
       // The standing briefing, as above: `context` runs before every model request.
       await ctx.session.hook("context", async (event) => {

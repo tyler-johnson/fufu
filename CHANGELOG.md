@@ -20,10 +20,6 @@
 - [`ff describe -b`](docs/reference/cli/describe.md) left the branch's seen and published records, its hold, and other branches' records naming it under the old name. After the remote branch was renamed to match, [`ff push`](docs/reference/cli/push.md) refused a rewritten branch with `push/unseen`. `ff resolve` called a hold on the renamed branch stale, and a child branch restacked onto trunk instead of its renamed parent. The rename now carries them: a child's base, a hold restacking onto the branch, and a session landing on it follow the new name. A shared copy that keeps its old name still receives the push. `ff undo` of a rename left the metadata, the upstream, and the branch's pointer into the log under the new name, so renaming to that name again failed with `ref/contended` and stranded the redo; it now puts them, the seen and published records, and the other branches' records back under the old one, and `ff redo` carries them forward again. (#26)
 - On Windows, [`ff update`](docs/reference/cli/update.md) said an install made by `install.ps1` at `%LOCALAPPDATA%\Programs\ff\ff.exe` was installed by something else and would not update it, though the update notice said to update with `ff update`. It now recognizes the install script's path and offers to run the installer. (#21)
 
-### Known issues
-
-- Under OpenCode 2.x, shell commands carry no `OPENCODE_SESSION_ID`, because 2.x's shell hook has no session id, so fufu operations run from the shell are not tagged with the OpenCode session. Hook captures are tagged.
-
 ## v0.19.2 — 2026-10-15
 
 ### Fixed
