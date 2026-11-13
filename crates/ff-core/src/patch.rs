@@ -112,6 +112,24 @@ pub(crate) fn hunks_of(
     Ok(Some(assemble(&input, &changes, context)))
 }
 
+/// Insertions, deletions, and hunks between two texts, diffed with
+/// terminators kept as [`hunks_of`] does. This is the gitlink path: gix's blob
+/// platform refuses a commit side, and git diffs a gitlink as its
+/// `Subproject commit <id>` line.
+pub(crate) fn text_diff(old: &[u8], new: &[u8], context: u32) -> (u32, u32, Vec<Hunk>) {
+    use gix::diff::blob::sources::byte_lines;
+
+    let input = gix::diff::blob::InternedInput::new(byte_lines(old), byte_lines(new));
+    let changes: Vec<(Range<u32>, Range<u32>)> =
+        gix::diff::blob::Diff::compute(gix::diff::blob::Algorithm::Myers, &input)
+            .hunks()
+            .map(|hunk| (hunk.before, hunk.after))
+            .collect();
+    let insertions = changes.iter().map(|(_, after)| after.len() as u32).sum();
+    let deletions = changes.iter().map(|(before, _)| before.len() as u32).sum();
+    (insertions, deletions, assemble(&input, &changes, context))
+}
+
 /// Group changes into hunks and fill in the lines between them.
 ///
 /// Two changes share a hunk when the gap between them is no wider than the

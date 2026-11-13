@@ -149,6 +149,67 @@ fn sides(change: &Change) -> Sides {
     }
 }
 
+/// One side of a change as (mode, id), `None` where the side does not exist.
+type RawSide = Option<(gix::object::tree::EntryMode, gix::ObjectId)>;
+
+/// Each side's mode and id, from the same arms as [`sides`].
+fn raw_sides(change: &Change) -> (RawSide, RawSide) {
+    match change {
+        Change::Addition { entry_mode, id, .. } => (None, Some((*entry_mode, id.detach()))),
+        Change::Deletion { entry_mode, id, .. } => (Some((*entry_mode, id.detach())), None),
+        Change::Modification {
+            previous_entry_mode,
+            previous_id,
+            entry_mode,
+            id,
+            ..
+        } => (
+            Some((*previous_entry_mode, previous_id.detach())),
+            Some((*entry_mode, id.detach())),
+        ),
+        Change::Rewrite {
+            source_entry_mode,
+            source_id,
+            entry_mode,
+            id,
+            ..
+        } => (
+            Some((*source_entry_mode, source_id.detach())),
+            Some((*entry_mode, id.detach())),
+        ),
+    }
+}
+
+/// A side's text as git diffs it when a gitlink is involved: a gitlink is the
+/// line `Subproject commit <id>`, a blob or link is its raw content, and a
+/// missing side is empty.
+fn gitlink_side_text(repo: &gix::Repository, side: RawSide) -> Result<Vec<u8>> {
+    match side {
+        None => Ok(Vec::new()),
+        Some((mode, id)) if mode.is_commit() => {
+            Ok(format!("Subproject commit {id}\n").into_bytes())
+        }
+        Some((_, id)) => Ok(repo.find_object(id).map_err(Error::repo)?.detach().data),
+    }
+}
+
+/// Insertions, deletions, binary, and (when asked) hunks for a change with a
+/// gitlink on either side, which gix's blob platform refuses.
+fn gitlink_diff(
+    repo: &gix::Repository,
+    old: RawSide,
+    new: RawSide,
+    opts: &DiffOptions,
+) -> Result<(u32, u32, bool, Option<Vec<crate::patch::Hunk>>)> {
+    let old = gitlink_side_text(repo, old)?;
+    let new = gitlink_side_text(repo, new)?;
+    if old.contains(&0) || new.contains(&0) {
+        return Ok((0, 0, true, opts.hunks.then(Vec::new)));
+    }
+    let (insertions, deletions, found) = crate::patch::text_diff(&old, &new, opts.context);
+    Ok((insertions, deletions, false, opts.hunks.then_some(found)))
+}
+
 /// The open change's tree: the branch's newest operation's tree, or HEAD's
 /// when nothing has been captured on this branch yet, or the repository is
 /// bare. The tree `ff diff` measures to, and the tree `@` stands for
@@ -273,30 +334,46 @@ pub fn tree_diff(
             }
 
             let mut hunks = None;
-            let (insertions, deletions, binary) = match change.diff(&mut cache) {
-                Ok(mut platform) => {
-                    let counted = match platform.line_counts() {
-                        Ok(Some(counts)) => (counts.insertions, counts.removals, false),
-                        Ok(None) => (0, 0, true),
-                        Err(e) => {
-                            error = Some(Error::repo(e));
-                            (0, 0, false)
-                        }
-                    };
-                    if opts.hunks && error.is_none() {
-                        match crate::patch::hunks_of(&mut platform, opts.context) {
-                            // Binary: asked for, and there is no text to
-                            // show. The empty vec says so; `None` would say
-                            // nobody asked.
-                            Ok(found) => hunks = Some(found.unwrap_or_default()),
-                            Err(e) => error = Some(e),
-                        }
+            let (old_side, new_side) = raw_sides(&change);
+            let gitlink = old_side.is_some_and(|(m, _)| m.is_commit())
+                || new_side.is_some_and(|(m, _)| m.is_commit());
+            let (insertions, deletions, binary) = if gitlink {
+                match gitlink_diff(repo, old_side, new_side, opts) {
+                    Ok((insertions, deletions, binary, found)) => {
+                        hunks = found;
+                        (insertions, deletions, binary)
                     }
-                    counted
+                    Err(e) => {
+                        error = Some(e);
+                        (0, 0, false)
+                    }
                 }
-                Err(e) => {
-                    error = Some(Error::repo(e));
-                    (0, 0, false)
+            } else {
+                match change.diff(&mut cache) {
+                    Ok(mut platform) => {
+                        let counted = match platform.line_counts() {
+                            Ok(Some(counts)) => (counts.insertions, counts.removals, false),
+                            Ok(None) => (0, 0, true),
+                            Err(e) => {
+                                error = Some(Error::repo(e));
+                                (0, 0, false)
+                            }
+                        };
+                        if opts.hunks && error.is_none() {
+                            match crate::patch::hunks_of(&mut platform, opts.context) {
+                                // Binary: asked for, and there is no text to
+                                // show. The empty vec says so; `None` would say
+                                // nobody asked.
+                                Ok(found) => hunks = Some(found.unwrap_or_default()),
+                                Err(e) => error = Some(e),
+                            }
+                        }
+                        counted
+                    }
+                    Err(e) => {
+                        error = Some(Error::repo(e));
+                        (0, 0, false)
+                    }
                 }
             };
 
