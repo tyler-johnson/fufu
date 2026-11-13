@@ -3122,3 +3122,215 @@ fn a_session_whose_only_conflict_is_kept_opens_and_lands() {
         Some("one\nmain\ntwo\nthree\n")
     );
 }
+
+// ---------------------------------------------------------------------------
+// A file the branch moved and the base edited
+// ---------------------------------------------------------------------------
+
+/// The body under `spans.ts`'s first line: long enough that the move with a one-line edit keeps the similarity rename detection needs, git's 50%.
+const SPANS_BODY: &str = "body1\nbody2\nbody3\nbody4\nbody5\nbody6\n";
+
+/// `feature` moves `sub/spans.ts` to `spans.ts` with `feat_head` as its first line and edits `idx.ts`; `main` writes `main_head` and `main_tail` around the body at the old path and edits `idx.ts`. Leaves the fixture on `feature`.
+fn rename_stack(fx: &Fixture, feat_head: &str, main_head: &str, main_tail: &str) {
+    fx.write(
+        "sub/spans.ts",
+        &format!("import a from \"../x\";\n{SPANS_BODY}"),
+    );
+    fx.write("idx.ts", "one\ntwo\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.git(&["mv", "sub/spans.ts", "spans.ts"]);
+    fx.write("spans.ts", &format!("{feat_head}\n{SPANS_BODY}"));
+    fx.write("idx.ts", "one\nfeat\ntwo\n");
+    fx.commit("move and edit");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write(
+        "sub/spans.ts",
+        &format!("{main_head}\n{SPANS_BODY}{main_tail}"),
+    );
+    fx.write("idx.ts", "one\nmain\ntwo\n");
+    fx.commit("main edit");
+    fx.git(&["switch", "-q", "feature"]);
+}
+
+#[test]
+fn a_moved_file_the_base_edited_takes_markers_at_its_new_path() {
+    let fx = Fixture::new();
+    ident(&fx);
+    rename_stack(&fx, "import a from \"./x\";", "import b from \"../y\";", "");
+    hold_a_restack(&fx);
+
+    let report = open_resolution(&fx, NOW + 100);
+    assert_eq!(
+        report.files,
+        vec!["idx.ts".to_string(), "spans.ts".to_string()]
+    );
+    assert!(
+        report.kept.is_empty(),
+        "the rename was followed: {report:?}"
+    );
+    assert_eq!(report.regions, 2);
+    assert!(report.tangled.is_none(), "{report:?}");
+    assert!(!fx.path().join("sub/spans.ts").exists());
+    let spans = std::fs::read_to_string(fx.path().join("spans.ts")).unwrap();
+    assert!(spans.contains(OPENER), "{spans}");
+    assert!(spans.contains("import b from \"../y\";\n"), "{spans}");
+    assert!(spans.contains("import a from \"./x\";\n"), "{spans}");
+
+    let fixed = format!("import b from \"./y\";\n{SPANS_BODY}");
+    fix(&fx, "spans.ts", &fixed);
+    fix(&fx, "idx.ts", "one\nmain\nfeat\ntwo\n");
+    let landed = resolved(&fx, NOW + 200);
+    assert_eq!(landed.replayed, 1);
+    let repo = fx.repo();
+    let now = oid(&tip(&fx, "feature"));
+    assert_eq!(file_in(&repo, now, "spans.ts"), Some(fixed));
+    assert_eq!(file_in(&repo, now, "sub/spans.ts"), None);
+    assert_eq!(
+        file_in(&repo, now, "idx.ts").as_deref(),
+        Some("one\nmain\nfeat\ntwo\n")
+    );
+}
+
+#[test]
+fn a_moved_file_the_base_edited_elsewhere_restacks_clean() {
+    let fx = Fixture::new();
+    ident(&fx);
+    rename_stack(
+        &fx,
+        "import a from \"./x\";",
+        "import a from \"../x\";",
+        "tail\n",
+    );
+    // Only the move conflicts nowhere; idx.ts would still hold, so put it back.
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("idx.ts", "one\ntwo\n");
+    fx.commit("main leaves idx");
+    fx.git(&["switch", "-q", "feature"]);
+
+    let repo = fx.repo();
+    let (outcome, _ctx) = ff_core::restack::restack(
+        &repo,
+        None,
+        None,
+        &prov(),
+        Some(NOW),
+        vec!["ff".into(), "restack".into()],
+    )
+    .unwrap();
+    assert!(
+        matches!(outcome, ff_core::RestackOutcome::Restacked(_)),
+        "a clean rename replays without a hold, got {outcome:?}"
+    );
+    let repo = fx.repo();
+    let now = oid(&tip(&fx, "feature"));
+    assert_eq!(
+        file_in(&repo, now, "spans.ts"),
+        Some(format!("import a from \"./x\";\n{SPANS_BODY}tail\n"))
+    );
+    assert_eq!(file_in(&repo, now, "sub/spans.ts"), None);
+}
+
+#[test]
+fn merge_renames_off_keeps_the_branchs_side_of_the_move() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.set_config("merge.renames", "false");
+    rename_stack(&fx, "import a from \"./x\";", "import b from \"../y\";", "");
+    hold_a_restack(&fx);
+
+    let report = open_resolution(&fx, NOW + 100);
+    assert_eq!(report.files, vec!["idx.ts".to_string()]);
+    assert_eq!(report.kept, vec!["sub/spans.ts".to_string()]);
+    assert!(!fx.path().join("sub/spans.ts").exists());
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("spans.ts")).unwrap(),
+        format!("import a from \"./x\";\n{SPANS_BODY}")
+    );
+}
+
+#[test]
+fn a_move_beneath_a_later_commit_keeps_the_later_work_in_the_session() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write(
+        "sub/a.ts",
+        &format!("import a from \"../x\";\n{SPANS_BODY}"),
+    );
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("new.ts", "new\n");
+    fx.git(&["mv", "sub/a.ts", "a.ts"]);
+    fx.write("a.ts", &format!("import a from \"./x\";\n{SPANS_BODY}"));
+    fx.commit("add new, move a");
+    fx.write("new.ts", "new\nedited\n");
+    fx.commit("edit new");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write(
+        "sub/a.ts",
+        &format!("import b from \"../y\";\n{SPANS_BODY}"),
+    );
+    fx.commit("main edit");
+    fx.git(&["switch", "-q", "feature"]);
+    hold_a_restack(&fx);
+
+    let report = open_resolution(&fx, NOW + 100);
+    assert_eq!(report.files, vec!["a.ts".to_string()]);
+    assert!(report.kept.is_empty(), "{report:?}");
+    assert!(report.tangled.is_none(), "{report:?}");
+    assert_eq!(report.steps, 2);
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("new.ts")).unwrap(),
+        "new\nedited\n"
+    );
+    assert!(!fx.path().join("sub/a.ts").exists());
+    let a = std::fs::read_to_string(fx.path().join("a.ts")).unwrap();
+    assert!(a.contains(OPENER), "{a}");
+
+    let fixed = format!("import b from \"./y\";\n{SPANS_BODY}");
+    fix(&fx, "a.ts", &fixed);
+    let landed = resolved(&fx, NOW + 200);
+    assert_eq!(landed.replayed, 2);
+    let repo = fx.repo();
+    let commits = commits_between(&repo, oid(&tip(&fx, "feature")), oid(&tip(&fx, "main")));
+    assert_eq!(commits.len(), 2, "{commits:?}");
+    for id in &commits {
+        assert_eq!(file_in(&repo, oid(id), "a.ts"), Some(fixed.clone()), "{id}");
+        assert_eq!(file_in(&repo, oid(id), "sub/a.ts"), None, "{id}");
+    }
+    assert_eq!(
+        file_in(&repo, oid(&commits[0]), "new.ts").as_deref(),
+        Some("new\nedited\n")
+    );
+}
+
+#[test]
+fn an_edit_to_a_file_the_base_moved_takes_markers_at_the_new_path() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write(
+        "sub/spans.ts",
+        &format!("import a from \"../x\";\n{SPANS_BODY}"),
+    );
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write(
+        "sub/spans.ts",
+        &format!("import a from \"../z\";\n{SPANS_BODY}"),
+    );
+    fx.commit("edit spans");
+    fx.git(&["switch", "-q", "main"]);
+    fx.git(&["mv", "sub/spans.ts", "spans.ts"]);
+    fx.write("spans.ts", &format!("import a from \"./x\";\n{SPANS_BODY}"));
+    fx.commit("main moves spans");
+    fx.git(&["switch", "-q", "feature"]);
+    hold_a_restack(&fx);
+
+    let report = open_resolution(&fx, NOW + 100);
+    assert_eq!(report.files, vec!["spans.ts".to_string()]);
+    assert!(report.kept.is_empty(), "{report:?}");
+    assert!(!fx.path().join("sub/spans.ts").exists());
+    let spans = std::fs::read_to_string(fx.path().join("spans.ts")).unwrap();
+    assert!(spans.contains(OPENER), "{spans}");
+    assert!(spans.contains("import a from \"../z\";\n"), "{spans}");
+}

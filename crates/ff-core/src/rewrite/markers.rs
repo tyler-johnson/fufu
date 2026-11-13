@@ -31,21 +31,29 @@ fn is_separator(line: &str) -> bool {
 
 /// The 0-based step a closer line encodes, `None` when it is not a well-formed
 /// fufu closer: the tail after the subject's closing quote must read
-/// ` (<k>/<n>)` with both decimal and `k` at least one.
+/// ` (<k>/<n>)` with both decimal and `k` at least one. A merge that followed
+/// a rename appends `:<path>` to each label, as git does, so the tail may
+/// carry that after its closing parenthesis.
 fn closer_step(line: &str) -> Option<usize> {
     let l = line.trim_end_matches('\n');
     let after = CLOSER_PREFIXES.iter().find_map(|p| l.strip_prefix(p))?;
-    // The subject sits between the first and the last quote; the step tail
-    // follows the last one. A subject containing a quote is therefore taken
-    // by its outermost quotes, not by escaping.
-    let q = after.rfind('"')?;
-    let tail = after[q..].strip_prefix('"')?;
-    let tail = tail.strip_prefix(' ')?;
-    let tail = tail.strip_prefix('(')?;
-    let tail = tail.strip_suffix(')')?;
-    let (k, _n) = tail.split_once('/')?;
-    let k = k.parse::<usize>().ok()?;
-    k.checked_sub(1)
+    // The subject sits between the first quote and the last one the step
+    // tail follows. A subject containing a quote is therefore taken by its
+    // outermost quotes, not by escaping.
+    after
+        .rmatch_indices("\" (")
+        .find_map(|(q, _)| step_tail(&after[q + 3..]))
+}
+
+/// The 0-based step in `<k>/<n>)`, optionally followed by `:<path>`.
+fn step_tail(tail: &str) -> Option<usize> {
+    let (step, rest) = tail.split_once(')')?;
+    if !(rest.is_empty() || rest.starts_with(':')) {
+        return None;
+    }
+    let (k, n) = step.split_once('/')?;
+    n.parse::<usize>().ok()?;
+    k.parse::<usize>().ok()?.checked_sub(1)
 }
 
 /// A line that closes a fufu conflict block, with a parseable step.
@@ -130,5 +138,18 @@ mod tests {
         assert_eq!(closer_step(">>>>>>> merging \"main\""), None);
         assert_eq!(closer_step(">>>>>>> squashing \"main\" (1/1)"), None);
         assert_eq!(closer_step(">>>>>>> theirs"), None);
+        assert_eq!(closer_step(">>>>>>> rebasing \"f1\" (1/3) extra"), None);
+    }
+
+    #[test]
+    fn a_closer_after_a_followed_rename_parses() {
+        assert_eq!(
+            closer_step(">>>>>>> rebasing \"move it\" (2/3):spans.ts\n"),
+            Some(1)
+        );
+        assert_eq!(
+            closer_step(">>>>>>> merging \"a \"quoted\" base\" (1/1):sub/a.ts"),
+            Some(0)
+        );
     }
 }

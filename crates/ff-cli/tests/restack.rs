@@ -718,6 +718,52 @@ fn restack_resolve_with_only_a_kept_file_says_done_lands_it() {
     );
 }
 
+/// `feature` moves `sub/spans.ts` to `spans.ts` and edits its first line and `idx.ts`; `main` edits the same lines at the old path. The body keeps the move above git's 50% rename similarity. Leaves the fixture on `feature`.
+fn rename_stack(fx: &Fixture) {
+    let body = "body1\nbody2\nbody3\nbody4\nbody5\nbody6\n";
+    fx.write("sub/spans.ts", &format!("import a from \"../x\";\n{body}"));
+    fx.write("idx.ts", "one\ntwo\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.git(&["mv", "sub/spans.ts", "spans.ts"]);
+    fx.write("spans.ts", &format!("import a from \"./x\";\n{body}"));
+    fx.write("idx.ts", "one\nfeat\ntwo\n");
+    fx.commit("move and edit");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("sub/spans.ts", &format!("import b from \"../y\";\n{body}"));
+    fx.write("idx.ts", "one\nmain\ntwo\n");
+    fx.commit("main edit");
+    fx.git(&["switch", "-q", "feature"]);
+}
+
+/// A file the branch moved and the base edited takes its markers at the new path, and the old path is gone.
+#[test]
+fn restack_resolve_follows_a_moved_file_to_its_new_path() {
+    let fx = repo();
+    rename_stack(&fx);
+
+    let output = ff(&fx, &["restack", "--onto", "main", "--resolve"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let so = stdout(&output);
+    assert!(
+        so.contains("conflicts in idx.ts, spans.ts\n"),
+        "the hold names the new path: {so}"
+    );
+    assert!(
+        so.contains("resolving 2 conflicts in idx.ts, spans.ts on ff/"),
+        "the session's line: {so}"
+    );
+    assert!(!so.contains("can't take markers"), "nothing kept: {so}");
+    assert!(!fx.path().join("sub/spans.ts").exists());
+    let spans = std::fs::read_to_string(fx.path().join("spans.ts")).unwrap();
+    assert!(
+        spans.contains("<<<<<<< the rewrite so far (1/1)"),
+        "{spans}"
+    );
+    assert!(spans.contains("import b from \"../y\";\n"), "{spans}");
+    assert!(spans.contains("import a from \"./x\";\n"), "{spans}");
+}
+
 /// `fufu.onConflict resolve` opens without the flag; `--no-resolve` holds
 /// for one run under it.
 #[test]
