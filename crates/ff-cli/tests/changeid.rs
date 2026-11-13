@@ -421,7 +421,7 @@ fn a_prefix_of_the_open_id_is_the_open_change() {
 
     let by_at = stdout(&ok(ff(&fx, &["show", "@"])));
     let by_id = stdout(&ok(ff(&fx, &["show", &open[..8]])));
-    assert_eq!(by_id, by_at, "the open prefix is @");
+    assert_eq!(ageless(&by_id), ageless(&by_at), "the open prefix is @");
     assert!(by_id.contains("the open change on main"), "{by_id}");
 
     // Its suffixes are `@`'s: `^` steps onto HEAD, and it has no reflog.
