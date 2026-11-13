@@ -269,6 +269,114 @@ fn a_partial_close_gives_the_remainder_a_fresh_id_at_once() {
     assert_eq!(open_id_on_disk(&fx, "main"), None);
 }
 
+/// The remainder's id is journaled with the close, so `ff undo` then
+/// `ff redo` brings back the id it had between them.
+#[test]
+fn undo_and_redo_of_a_partial_close_keep_the_remainder_id() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.write("b.txt", "b\n");
+    fx.commit("root");
+    fx.write("a.txt", "a2\n");
+    fx.write("b.txt", "b2\n");
+    ok(ff(&fx, &[]));
+    let open = open_id_on_disk(&fx, "main").expect("the capture minted an id");
+
+    ok(ff(&fx, &["commit", "a.txt", "-m", "just a"]));
+    let remainder = open_id_on_disk(&fx, "main").expect("the remainder has an id");
+    let status = json(&ok(ff(&fx, &["--json", "status"])));
+    assert_eq!(status["data"]["open"]["change_id"], remainder);
+    assert_eq!(
+        header_of(&fx, "refs/fufu/open/main").as_deref(),
+        Some(remainder.as_str())
+    );
+
+    ok(ff(&fx, &["undo"]));
+    assert_eq!(open_id_on_disk(&fx, "main").as_deref(), Some(open.as_str()));
+    let status = json(&ok(ff(&fx, &["--json", "status"])));
+    assert_eq!(status["data"]["open"]["change_id"], open);
+
+    ok(ff(&fx, &["redo"]));
+    assert_eq!(
+        id_of(&fx, "HEAD"),
+        open,
+        "the slice wears the open id again"
+    );
+    let status = json(&ok(ff(&fx, &["--json", "status"])));
+    assert_eq!(
+        status["data"]["open"]["change_id"], remainder,
+        "redo brought the remainder back under its id: {status}"
+    );
+    assert_eq!(open_id_on_disk(&fx, "main"), Some(remainder.clone()));
+    assert_eq!(
+        header_of(&fx, "refs/fufu/open/main").as_deref(),
+        Some(remainder.as_str())
+    );
+
+    // The close of the remainder lands that id.
+    ok(ff(&fx, &["commit", "-m", "the rest"]));
+    assert_eq!(id_of(&fx, "HEAD"), remainder);
+}
+
+/// Under `-b` the remainder lands on the other branch, a fresh one forked
+/// from a named branch or the anonymous one renamed, and undo then redo
+/// bring it back there under the id it had.
+#[test]
+fn undo_and_redo_of_a_partial_close_to_another_branch_keep_the_remainder_id() {
+    for (from, to) in [("main", "fresh"), ("ff/scratch", "claimed")] {
+        let fx = repo();
+        fx.write("a.txt", "a\n");
+        fx.write("b.txt", "b\n");
+        fx.commit("root");
+        if from != "main" {
+            fx.git(&["switch", "-q", "-c", from]);
+        }
+        fx.write("a.txt", "a2\n");
+        fx.write("b.txt", "b2\n");
+        ok(ff(&fx, &[]));
+        let open = open_id_on_disk(&fx, from).expect("the capture minted an id");
+
+        ok(ff(&fx, &["commit", "a.txt", "-b", to, "-m", "just a"]));
+        let remainder = open_id_on_disk(&fx, to).expect("the remainder has an id");
+        assert_eq!(open_id_on_disk(&fx, from), None, "{from} -> {to}");
+        let open_ref = format!("refs/fufu/open/{to}");
+        assert_eq!(
+            header_of(&fx, &open_ref).as_deref(),
+            Some(remainder.as_str()),
+            "{from} -> {to}: the open commit wears the remainder's id"
+        );
+
+        ok(ff(&fx, &["undo"]));
+        assert_eq!(
+            open_id_on_disk(&fx, from).as_deref(),
+            Some(open.as_str()),
+            "{from} -> {to}"
+        );
+        assert_eq!(open_id_on_disk(&fx, to), None, "{from} -> {to}");
+
+        ok(ff(&fx, &["redo"]));
+        assert_eq!(id_of(&fx, "HEAD"), open, "{from} -> {to}");
+        assert_eq!(
+            fx.git(&["rev-parse", "--abbrev-ref", "HEAD"]).trim(),
+            to,
+            "{from} -> {to}"
+        );
+        assert_eq!(open_id_on_disk(&fx, from), None, "{from} -> {to}");
+        let status = json(&ok(ff(&fx, &["--json", "status"])));
+        assert_eq!(
+            status["data"]["open"]["change_id"], remainder,
+            "{from} -> {to}: redo brought the remainder back under its id: {status}"
+        );
+        assert_eq!(
+            header_of(&fx, &open_ref).as_deref(),
+            Some(remainder.as_str()),
+            "{from} -> {to}"
+        );
+        ok(ff(&fx, &["commit", "-m", "the rest"]));
+        assert_eq!(id_of(&fx, "HEAD"), remainder, "{from} -> {to}");
+    }
+}
+
 /// `ff commit -b <fresh>` from a named branch lands on the new branch and
 /// leaves the old one behind: the id and the pending description both go
 /// with the commit, and the branch left behind keeps neither.

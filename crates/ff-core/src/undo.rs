@@ -610,7 +610,11 @@ fn apply_metadata(
                 meta.pending_description = if replay { d.new.clone() } else { d.old.clone() };
                 branchmeta::write(repo, &d.branch, &meta)?;
             }
-            if let Some(c) = &op_record.change_id {
+            for c in op_record
+                .change_id
+                .iter()
+                .chain(op_record.forked_change_id.iter())
+            {
                 let mut meta = branchmeta::read(repo, &c.branch)?;
                 meta.change_id = if replay { c.new.clone() } else { c.old.clone() };
                 meta.change_born = if replay { c.new_born } else { c.old_born };

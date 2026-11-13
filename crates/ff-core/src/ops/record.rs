@@ -251,6 +251,11 @@ pub struct OpRecord {
     /// absent, so no `RECORD_VERSION` bump.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub change_id: Option<ChangeIdTransition>,
+    /// The id a partial close under `-b` gives the remainder on the branch
+    /// it forks, beside `change_id` taking the closed id off the branch it
+    /// left. Skipped when absent, so no `RECORD_VERSION` bump.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub forked_change_id: Option<ChangeIdTransition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<ParentTransition>,
     /// Recorded parents set several at a time: the ones a reconciliation
@@ -353,6 +358,7 @@ impl OpRecord {
             worktree: Vec::new(),
             description: None,
             change_id: None,
+            forked_change_id: None,
             parent: None,
             inferred_parents: Vec::new(),
             upstream: None,

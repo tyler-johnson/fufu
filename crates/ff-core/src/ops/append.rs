@@ -609,9 +609,9 @@ pub fn capture(repo: &gix::Repository, prov: &Provenance) -> Result<CaptureOutco
 /// the log's lock, so the open commit the append writes wears the letters
 /// the close will land, and two racing captures cannot each mint their own.
 /// A capture that loses the lock writes nothing. Read verbs therefore write
-/// that one file. The mint is not journaled: an undo and redo of a close can
-/// leave the remainder with a different id than it had between them, and
-/// nobody saw the first one on a commit.
+/// that one file. The mint is not journaled. A close journals the id it
+/// takes off the open change and the one it gives a partial close's
+/// remainder, so an undo and redo of the close keep both.
 pub fn capture_with(
     repo: &gix::Repository,
     prov: &Provenance,

@@ -279,21 +279,31 @@ pub fn close(
         .then(changeid::ChangeId::mint)
         .transpose()?
         .map(|id| id.letters());
-    // Journaled on the branch the id was read from. Under `-b` the remainder
-    // lands on the new branch instead, and that mint is not journaled, the
-    // way a capture's is not: a redo leaves the remainder to mint afresh.
+    // Journaled so a redo brings the remainder back under the id it had.
+    // A claim's transitions name the branch as it was called before the
+    // rename, which carries the metadata, so the remainder's id goes on the
+    // branch the id was read from. A fork leaves that branch with none and
+    // journals the remainder's id on the branch it creates.
     let remainder_born = remainder_id.as_ref().map(|_| now);
     record.change_id = Some(ChangeIdTransition {
         branch: current_branch.clone(),
         old: meta.change_id.clone(),
-        new: (current_branch == target_branch)
-            .then(|| remainder_id.clone())
-            .flatten(),
+        new: (!created_branch).then(|| remainder_id.clone()).flatten(),
         old_born: meta.change_born,
-        new_born: (current_branch == target_branch)
-            .then_some(remainder_born)
-            .flatten(),
+        new_born: (!created_branch).then_some(remainder_born).flatten(),
     });
+    let forked = created_branch
+        .then(|| branchmeta::read(repo, &target_branch))
+        .transpose()?;
+    if let Some(forked) = forked.filter(|f| f.change_id != remainder_id) {
+        record.forked_change_id = Some(ChangeIdTransition {
+            branch: target_branch.clone(),
+            old: forked.change_id,
+            new: remainder_id.clone(),
+            old_born: forked.change_born,
+            new_born: remainder_born,
+        });
+    }
     let mut pins = vec![commit_id];
     pins.extend(head_commit);
     pins.extend(ctx.pre_op.map(|id| id.object_id()));
@@ -331,9 +341,10 @@ pub fn close(
     )?;
 
     // Mutate. Branch axis first, then the CAS advance, then the index. A
-    // close that leaves its branch — a claim or a fork — leaves nothing
-    // open on it: the open ref goes before the rename would carry it.
-    if current_branch != target_branch {
+    // fork leaves nothing open on the branch it leaves. A claim's op was
+    // recorded on the old name, so the append already wrote or deleted that
+    // name's open ref for the remainder, and the rename carries it.
+    if created_branch {
         open::clear(repo, &current_branch, now)?;
     }
     if let Some(old_name) = &claim_from {

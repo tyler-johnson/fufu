@@ -80,8 +80,9 @@ impl Overlay {
                 .map(|d| d.new.clone()),
             change_id: record
                 .change_id
-                .as_ref()
-                .filter(|c| c.branch == branch)
+                .iter()
+                .chain(record.forked_change_id.iter())
+                .find(|c| c.branch == branch)
                 .map(|c| (c.new.clone(), c.new_born)),
         }
     }
