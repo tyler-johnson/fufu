@@ -17,6 +17,8 @@ A resolution session is an automatically named branch containing the conflict ma
 
 The working copy is the rewrite's final tree, later replayed commits included. Each fix inside a marker block goes to the commit its label names. An edit outside every marker block lands in the last replayed commit, and `ff done` names that commit.
 
+A conflict that can't take markers, such as a binary file or a modify/delete, keeps your version in the session: the replayed commit's, or your branch's for a merge. Later commits replay over it, the report lists it apart from the marked files, and `ff done` lands it as it stands. For a restack or merge, `ff restore <path> --from <base>` takes the base's version instead, deleting the file when the base doesn't have it. A session whose only conflicts are of this kind has no markers to fix: run `ff done` when the kept files are what you want.
+
 If a replay held at a commit now applies cleanly, resolve releases the hold instead. Re-run the original command to apply that replay. A held merge is different: resolve lands it directly when it is clean, or releases the hold if the target is already included.
 
 ### Taking the base in

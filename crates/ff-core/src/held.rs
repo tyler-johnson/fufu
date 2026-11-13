@@ -252,6 +252,9 @@ pub struct Resolve {
     /// which reads as the hold's own paths.
     #[serde(default)]
     pub files: Vec<String>,
+    /// The files in this round's tree where a conflict took no markers and your version stands, sorted and deduped. `ff done` lands them as they stand. Empty on a record written before sessions kept them.
+    #[serde(default)]
+    pub kept: Vec<String>,
 }
 
 /// The hold standing on `branch`, if one does.
@@ -473,6 +476,14 @@ pub(crate) fn onto_short(repo: &gix::Repository, onto: &str) -> String {
     match crate::restack::resolve_onto(repo, onto) {
         Ok(base) => base.name,
         Err(_) => onto.strip_prefix("refs/heads/").unwrap_or(onto).to_string(),
+    }
+}
+
+/// The revision holding the other side of a session's kept files, for `ff restore <path> --from`: the base a restack replays onto, or the branch a merge takes in. The other verbs replay onto a tree no revision names.
+pub(crate) fn restore_from(repo: &gix::Repository, held: &Held) -> Option<String> {
+    match &held.intent {
+        Intent::Restack { onto, .. } | Intent::Merge { onto, .. } => Some(onto_short(repo, onto)),
+        _ => None,
     }
 }
 

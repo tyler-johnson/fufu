@@ -28,6 +28,8 @@ A rewrite resolution session uses an automatically named branch whose starting c
 
 The current side of a marker is labeled `the rewrite so far`. The incoming side identifies the replayed commit, for example `>>>>>>> rebasing "add parser options" (3/10)`. These labels associate each fix with the step that needs it. The working copy holds the whole rewrite's result, so text outside the markers belongs to the last replayed commit. `ff done` names that commit when it differs from the ones the conflicts came from, with the [`ff absorb`](../reference/cli/absorb.md) line that moves the edit where it belongs.
 
+A conflict that can't take markers, such as a binary file or a modify/delete, keeps your version in the session: the replayed commit's, or your branch's for a merge. Later commits replay over it, the report and status list it apart from the marked files, and `ff done` lands it as it stands. For a restack or merge, [`ff restore <path> --from <base>`](../reference/cli/restore.md) takes the base's version instead, deleting the file when the base doesn't have it. A session whose only conflicts are of this kind has no markers to fix: run `ff done` when the kept files are what you want.
+
 You can switch away from the session and return later. Its unfinished edits park and resume like other branch work. The temporary session commit contains literal markers that ordinary Git can read; the original branch does not contain that marker commit.
 
 ### Landing the session
@@ -60,7 +62,7 @@ Here `ff resolve` lands the restack in place: it moves the branch, replays any c
 
 The `--resolve` flag leaves this hold standing, since there is no session to open. Commit the change before resolving and it becomes a conflict in a commit, which opens a session as usual.
 
-A conflict that can't take markers, such as a binary file or a modify/delete, keeps your version in the working copy, and the report lists it apart from the marked files. The new tip holds the other version: [`ff restore <path>`](../reference/cli/restore.md) takes it instead, deleting the file when the tip doesn't have it.
+A conflict that can't take markers, such as a binary file or a modify/delete, keeps your version in the working copy, and the report lists it apart from the marked files. The new tip holds the other version: `ff restore <path>` takes it instead, deleting the file when the tip doesn't have it.
 
 <a id="deferred-requires-loud"></a>
 

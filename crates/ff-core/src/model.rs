@@ -861,6 +861,10 @@ pub struct ResolveReport {
     pub verb: String,
     /// Files carrying conflict markers, sorted.
     pub files: Vec<String>,
+    /// Files that conflicted without taking markers, binary or modify/delete, where your version stands, sorted. `ff done` lands them as they stand.
+    pub kept: Vec<String>,
+    /// The revision holding the other side's version of the kept files, for `ff restore <path> --from`: the base a restack replays onto, or the branch a merge takes in. `None` for other verbs.
+    pub restore_from: Option<String>,
     /// How many marked regions are waiting.
     pub regions: usize,
     /// How many steps the chain ran, and how many the rewrite has in all —
@@ -951,6 +955,10 @@ pub struct RolledReport {
     pub dropped: Vec<String>,
     /// Files carrying conflict markers in the new round, sorted.
     pub files: Vec<String>,
+    /// Files in the new round where a conflict took no markers and your version stands, sorted.
+    pub kept: Vec<String>,
+    /// The revision holding the other side's version of the kept files, as in [`ResolveReport::restore_from`].
+    pub restore_from: Option<String>,
     /// How many marked regions are waiting.
     pub regions: usize,
     /// How many steps the chain ran, and how many the rewrite has in all —

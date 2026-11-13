@@ -16,7 +16,7 @@ mod replay;
 
 pub use chain::{
     Attribution, Chain, Conflict, Region, Resolution, Step, Tangle, attribute, chain, conflict,
-    regions,
+    kept, regions,
 };
 pub(crate) use chain::{
     Kept, REBASING, carries_markers, chain_labels, is_stale_resolution, keep_yours, merged,

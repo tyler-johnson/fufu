@@ -45,6 +45,8 @@ pub struct Step {
     pub tree: gix::ObjectId,
     /// Paths this step left unresolved regions in, sorted and deduped.
     pub paths: Vec<String>,
+    /// The paths among `paths` that took no markers, a binary or modify/delete conflict, where your version stands in `tree`: the replayed commit's, or the tip's for a merge. Sorted.
+    pub kept: Vec<String>,
 }
 
 /// The commit a chain stopped before, and the marks it would have written
@@ -183,6 +185,7 @@ pub fn chain(
         // reword carries every commit's own tree; everything else lays the
         // commit's own change over what its mapped parents give it.
         let mut paths: Vec<String> = Vec::new();
+        let mut kept: Vec<String> = Vec::new();
         // What the step's mapped parents gave it, when a merge ran: the
         // tree a block carried up from an earlier step is checked against.
         let mut fold: Option<gix::ObjectId> = None;
@@ -199,9 +202,14 @@ pub fn chain(
             Change::Message(_) => tree_of(repo, id)?,
             Change::Tree { .. } | Change::Onto(_) | Change::Move { .. } => {
                 let step = step_tree(repo, &sim, id, &parents, change, k, n, &subject, &reported)?;
+                // A conflict that took no markers keeps the replayed commit's
+                // version here, in the step, so later steps replay over it and
+                // the session's tree carries it.
+                let landed = keep_yours(repo, step.tree, step.their, &step.paths)?;
                 paths.extend(step.paths);
+                kept = landed.kept;
                 fold = Some(step.fold);
-                let tree = step.tree;
+                let tree = landed.tree;
                 // A move's target above the bottom takes the moved paths
                 // from the fold, the way the replay does. The fold can
                 // carry marks of its own — a conflicted fold is handed in
@@ -266,6 +274,7 @@ pub fn chain(
             subject,
             tree: final_tree,
             paths,
+            kept,
         });
         sim_ids.insert(id, simulate(&sim, final_tree, parents)?);
     }
@@ -307,13 +316,14 @@ fn merge_chain(
         }
         Err(e) => return Err(Error::repo(e)),
     };
+    let tip_tree = tree_of(repo, tip)?;
     let (tree, paths) = if base == other {
-        (tree_of(repo, tip)?, Vec::new())
+        (tip_tree, Vec::new())
     } else {
         merged(
             repo,
             tree_of(repo, base)?,
-            tree_of(repo, tip)?,
+            tip_tree,
             tree_of(repo, other)?,
             MERGING,
             1,
@@ -321,13 +331,16 @@ fn merge_chain(
             subject,
         )?
     };
-    let tree = apply_resolutions(repo, tree, 0, resolutions)?;
+    // The branch taking the merge in is yours.
+    let landed = keep_yours(repo, tree, tip_tree, &paths)?;
+    let tree = apply_resolutions(repo, landed.tree, 0, resolutions)?;
     Ok(Chain {
         steps: vec![Step {
             old: other.to_string(),
             subject: subject.to_string(),
             tree,
             paths,
+            kept: landed.kept,
         }],
         tree,
         tangled: None,
@@ -382,6 +395,9 @@ pub(super) struct StepTree {
     /// What the mapped parents gave it, before its own change: the fold of
     /// their trees, markers and all.
     pub(super) fold: gix::ObjectId,
+    /// The commit's own side of the merge: its tree, or the one the change
+    /// says to carry for it.
+    pub(super) their: gix::ObjectId,
 }
 
 /// A commit replayed onto its mapped parents: the tree its own change makes
@@ -510,7 +526,12 @@ pub(super) fn step_tree(
     }
     paths.sort();
     paths.dedup();
-    Ok(StepTree { tree, paths, fold })
+    Ok(StepTree {
+        tree,
+        paths,
+        fold,
+        their,
+    })
 }
 
 /// The fufu blocks standing in the blob at `path` in `tree`; none when the
@@ -749,6 +770,24 @@ pub fn regions(repo: &gix::Repository, chain: &Chain) -> Result<Vec<Region>> {
     Ok(regions)
 }
 
+/// Every path a chain's steps kept your version at, sorted and deduped, less any a later step left markers in: the list `ff resolve` shows beside the marked files.
+pub fn kept(repo: &gix::Repository, chain: &Chain) -> Result<Vec<String>> {
+    let mut paths: Vec<String> = chain
+        .steps
+        .iter()
+        .flat_map(|s| s.kept.iter().cloned())
+        .collect();
+    paths.sort();
+    paths.dedup();
+    let mut kept = Vec::new();
+    for path in paths {
+        if !carries_markers(repo, chain.tree, &path)? {
+            kept.push(path);
+        }
+    }
+    Ok(kept)
+}
+
 /// What a reader made of a resolution session, worked out per step.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Attribution {
@@ -808,8 +847,12 @@ pub fn attribute(
 
     for path in &paths {
         // A path some step marked but the marker tree holds no blob at has
-        // nothing to attribute.
+        // nothing to attribute. A file the reader put there, such as the other
+        // side of a kept deletion, is an edit outside every region.
         let Some(before) = blob_of(repo, chain.tree, path)? else {
+            if blob_of(repo, resolved, path)?.is_some() {
+                outside.push(path.clone());
+            }
             continue;
         };
         // The path absent from `resolved` means the reader deleted the file:

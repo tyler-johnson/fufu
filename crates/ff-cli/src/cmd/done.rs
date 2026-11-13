@@ -278,6 +278,11 @@ pub fn run(ctx: &Ctx, abandon: bool, no_verify: bool) -> Result<()> {
             for subject in &report.dropped {
                 println!("    \"{subject}\" is shown again: its fix followed the new conflict");
             }
+            super::resolve::render_kept_session(
+                &report.kept,
+                report.restore_from.as_deref(),
+                colored,
+            );
             println!(
                 "    {}",
                 crate::render::paint_dim(

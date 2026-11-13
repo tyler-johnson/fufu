@@ -52,6 +52,8 @@ A resolution session is an automatically named branch containing the conflict ma
 
 The working copy is the rewrite's final tree, later replayed commits included. Each fix inside a marker block goes to the commit its label names. An edit outside every marker block lands in the last replayed commit, and `ff done` names that commit.
 
+A conflict that can't take markers, such as a binary file or a modify/delete, keeps your version in the session: the replayed commit's, or your branch's for a merge. Later commits replay over it, the report lists it apart from the marked files, and `ff done` lands it as it stands. For a restack or merge, [`ff restore <path> --from <base>`](restore.md) takes the base's version instead, deleting the file when the base doesn't have it. A session whose only conflicts are of this kind has no markers to fix: run `ff done` when the kept files are what you want.
+
 If a replay held at a commit now applies cleanly, resolve releases the hold instead. Re-run the original command to apply that replay. A held merge is different: resolve lands it directly when it is clean, or releases the hold if the target is already included.
 
 ## Taking the base in
@@ -66,7 +68,7 @@ A later rewrite can drop, clear, or update a held merge, as it can a held restac
 
 ## Parked-change arrivals
 
-A held arrival occurs when [`ff switch`](switch.md) cannot replay parked work onto a moved branch tip. Resolve handles it in place: the marked files become the open change, with no session and no done step. Fix them and continue ordinary work. A file that can't take markers, such as a binary file or a modify/delete, keeps your version, and [`ff restore <path>`](restore.md) takes the branch's instead. Resolution refuses if the branch already has an open change; commit that work first. Switching away only parks it on the same branch, so returning resumes the blocker.
+A held arrival occurs when [`ff switch`](switch.md) cannot replay parked work onto a moved branch tip. Resolve handles it in place: the marked files become the open change, with no session and no done step. Fix them and continue ordinary work. A file that can't take markers, such as a binary file or a modify/delete, keeps your version, and `ff restore <path>` takes the branch's instead. Resolution refuses if the branch already has an open change; commit that work first. Switching away only parks it on the same branch, so returning resumes the blocker.
 
 ## Open-change conflicts
 

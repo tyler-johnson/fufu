@@ -98,6 +98,8 @@ pub struct ResolvingStatus {
     pub verb: String,
     /// The conflicts standing in the session's working copy.
     pub conflicts: usize,
+    /// The files where a conflict took no markers and your version stands, sorted. `ff done` lands them as they stand.
+    pub kept: Vec<String>,
     /// Each step's subject, oldest-first — what the session will land.
     pub steps: Vec<String>,
     /// The session branch carrying the markers.
@@ -296,12 +298,14 @@ pub fn run_inner(ctx: &Ctx) -> Result<()> {
                         verb: verb_of(&r.hold.intent).to_string(),
                         // The round's own files when the record carries
                         // them; a record from before rounds reads as the
-                        // hold's paths.
-                        conflicts: if r.files.is_empty() {
+                        // hold's paths. A round whose conflicts all kept
+                        // your version has no marked files and is not one.
+                        conflicts: if r.files.is_empty() && r.kept.is_empty() {
                             r.hold.paths.len()
                         } else {
                             r.files.len()
                         },
+                        kept: r.kept.clone(),
                         steps: r.steps.clone(),
                         session: r.session.clone(),
                         here,

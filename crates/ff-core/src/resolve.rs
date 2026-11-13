@@ -690,6 +690,7 @@ pub(crate) fn open_session(
     // marker content, and read back the regions standing in the result.
     let chain = crate::rewrite::chain(repo, replan.target, replan.tip, &replan.change, &[])?;
     let regions = crate::rewrite::regions(repo, &chain)?;
+    let kept = crate::rewrite::kept(repo, &chain)?;
 
     // The working copy as it stands, before the switch parks it. A `done`,
     // `absorb` or `lift` plan is derived from the open change, and this is
@@ -728,6 +729,7 @@ pub(crate) fn open_session(
         session: session_name.clone(),
         resolutions: Vec::new(),
         files: files.clone(),
+        kept: kept.clone(),
     };
     let merging = match &held.intent {
         held::Intent::Merge { .. } => chain.steps.first().map(|s| s.subject.clone()),
@@ -778,6 +780,8 @@ pub(crate) fn open_session(
             session: session_name,
             verb: verb_name,
             files,
+            kept,
+            restore_from: held::restore_from(repo, held),
             regions: regions.len(),
             steps: chain.steps.len(),
             of,

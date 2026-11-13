@@ -748,6 +748,7 @@ fn roll_round(
     let mut files: Vec<String> = regions.iter().map(|r| r.path.clone()).collect();
     files.sort();
     files.dedup();
+    let kept_files = rewrite::kept(repo, &rolled)?;
     let old_session = branchmeta::read(repo, session)?
         .session
         .ok_or_else(|| Error::msg(format!("internal: {session} carries no session")))?;
@@ -763,6 +764,7 @@ fn roll_round(
         session: session.to_string(),
         resolutions: kept,
         files: files.clone(),
+        kept: kept_files.clone(),
     };
 
     // 2. The operation, write-ahead, on `edit::mint_session`'s template:
@@ -878,6 +880,8 @@ fn roll_round(
         conflicts,
         dropped,
         files,
+        kept: kept_files,
+        restore_from: held::restore_from(repo, hold),
         regions: regions.len(),
         steps: rolled.steps.len(),
         of,

@@ -2942,3 +2942,183 @@ fn a_new_file_in_a_restack_resolution_is_named_with_a_move_to_the_conflict() {
     assert_eq!(outside.moves.len(), 1, "{:?}", outside.moves);
     assert_eq!(outside.moves[0].into, landed[2], "f1 owned the conflict");
 }
+
+// ---------------------------------------------------------------------------
+// Conflicts that can't take markers
+// ---------------------------------------------------------------------------
+
+/// `main` edits `gone.txt` and `idx.txt`; `feature`'s first commit runs
+/// `first` over them and `rest` adds commits above it. Leaves the fixture on
+/// `feature`.
+fn modify_delete_stack(fx: &Fixture, first: impl FnOnce(&Fixture), rest: impl FnOnce(&Fixture)) {
+    fx.write("gone.txt", "a\nb\n");
+    fx.write("idx.txt", "one\ntwo\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    first(fx);
+    fx.commit("delete gone, edit idx");
+    rest(fx);
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("gone.txt", "a\nMAIN\n");
+    fx.write("idx.txt", "one\nmain\ntwo\n");
+    fx.commit("main");
+    fx.git(&["switch", "-q", "feature"]);
+}
+
+/// The commit deletes `gone.txt` and edits `idx.txt`.
+fn delete_gone_edit_idx(fx: &Fixture) {
+    fx.remove("gone.txt");
+    fx.write("idx.txt", "one\nfeat\ntwo\n");
+}
+
+/// The resolution record standing on `feature`.
+fn resolving_record(fx: &Fixture) -> ff_core::held::Resolve {
+    let repo = fx.repo();
+    ff_core::branchmeta::read(&repo, "feature")
+        .unwrap()
+        .resolving
+        .expect("a session is open on feature")
+}
+
+#[test]
+fn a_deletion_that_cannot_take_markers_keeps_the_branchs_side() {
+    let fx = Fixture::new();
+    ident(&fx);
+    modify_delete_stack(&fx, delete_gone_edit_idx, |_| {});
+    hold_a_restack(&fx);
+
+    let report = open_resolution(&fx, NOW + 100);
+    assert_eq!(report.files, vec!["idx.txt".to_string()]);
+    assert_eq!(report.kept, vec!["gone.txt".to_string()]);
+    assert_eq!(report.restore_from.as_deref(), Some("main"));
+    assert_eq!(report.regions, 1);
+    assert!(
+        !fx.path().join("gone.txt").exists(),
+        "the branch deleted gone.txt, and the session keeps that"
+    );
+    let record = resolving_record(&fx);
+    assert_eq!(record.files, vec!["idx.txt".to_string()]);
+    assert_eq!(record.kept, vec!["gone.txt".to_string()]);
+
+    fix(&fx, "idx.txt", "one\nmain\nfeat\ntwo\n");
+    let landed = resolved(&fx, NOW + 200);
+    assert_eq!(landed.replayed, 1);
+    let repo = fx.repo();
+    let now = oid(&tip(&fx, "feature"));
+    assert_eq!(file_in(&repo, now, "gone.txt"), None, "the deletion landed");
+    assert_eq!(
+        file_in(&repo, now, "idx.txt").as_deref(),
+        Some("one\nmain\nfeat\ntwo\n")
+    );
+    assert!(!fx.path().join("gone.txt").exists());
+}
+
+#[test]
+fn an_edit_to_a_file_the_base_deleted_keeps_the_branchs_version() {
+    let fx = Fixture::new();
+    ident(&fx);
+    fx.write("gone.txt", "a\nb\n");
+    fx.write("idx.txt", "one\ntwo\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.write("gone.txt", "a\nFEAT\n");
+    fx.write("idx.txt", "one\nfeat\ntwo\n");
+    fx.commit("edit gone and idx");
+    fx.git(&["switch", "-q", "main"]);
+    fx.remove("gone.txt");
+    fx.write("idx.txt", "one\nmain\ntwo\n");
+    fx.commit("main deletes gone");
+    fx.git(&["switch", "-q", "feature"]);
+    hold_a_restack(&fx);
+
+    let report = open_resolution(&fx, NOW + 100);
+    assert_eq!(report.files, vec!["idx.txt".to_string()]);
+    assert_eq!(report.kept, vec!["gone.txt".to_string()]);
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("gone.txt")).unwrap(),
+        "a\nFEAT\n",
+        "the branch's edit stands in the working copy"
+    );
+
+    fix(&fx, "idx.txt", "one\nmain\nfeat\ntwo\n");
+    resolved(&fx, NOW + 200);
+    let repo = fx.repo();
+    let now = oid(&tip(&fx, "feature"));
+    assert_eq!(
+        file_in(&repo, now, "gone.txt").as_deref(),
+        Some("a\nFEAT\n"),
+        "the branch's edit landed"
+    );
+}
+
+#[test]
+fn a_kept_deletion_stands_in_every_commit_above_it() {
+    let fx = Fixture::new();
+    ident(&fx);
+    modify_delete_stack(&fx, delete_gone_edit_idx, |fx| {
+        fx.write("other.txt", "other\n");
+        fx.commit("add other");
+    });
+    hold_a_restack(&fx);
+
+    let report = open_resolution(&fx, NOW + 100);
+    assert_eq!(report.files, vec!["idx.txt".to_string()]);
+    assert_eq!(report.kept, vec!["gone.txt".to_string()]);
+    assert_eq!(report.steps, 2);
+    assert!(!fx.path().join("gone.txt").exists());
+
+    fix(&fx, "idx.txt", "one\nmain\nfeat\ntwo\n");
+    let landed = resolved(&fx, NOW + 200);
+    assert_eq!(landed.replayed, 2, "both commits landed");
+    let repo = fx.repo();
+    let commits = commits_between(&repo, oid(&tip(&fx, "feature")), oid(&tip(&fx, "main")));
+    assert_eq!(commits.len(), 2, "two commits landed: {commits:?}");
+    for id in &commits {
+        assert_eq!(
+            file_in(&repo, oid(id), "gone.txt"),
+            None,
+            "{id} carries the deletion"
+        );
+        assert_eq!(
+            file_in(&repo, oid(id), "idx.txt").as_deref(),
+            Some("one\nmain\nfeat\ntwo\n"),
+            "{id} carries the fix"
+        );
+    }
+}
+
+#[test]
+fn a_session_whose_only_conflict_is_kept_opens_and_lands() {
+    let fx = Fixture::new();
+    ident(&fx);
+    modify_delete_stack(
+        &fx,
+        |fx| {
+            fx.remove("gone.txt");
+            fx.write("idx.txt", "one\ntwo\nthree\n");
+        },
+        |_| {},
+    );
+    hold_a_restack(&fx);
+
+    let report = open_resolution(&fx, NOW + 100);
+    assert!(report.files.is_empty(), "nothing took markers: {report:?}");
+    assert_eq!(report.regions, 0);
+    assert_eq!(report.kept, vec!["gone.txt".to_string()]);
+    assert!(!fx.path().join("gone.txt").exists());
+    let record = resolving_record(&fx);
+    assert!(record.files.is_empty());
+    assert_eq!(record.kept, vec!["gone.txt".to_string()]);
+
+    let landed = resolved(&fx, NOW + 200);
+    assert_eq!(landed.fixed, 0);
+    assert_eq!(landed.replayed, 1);
+    assert!(landed.still_held.is_none());
+    let repo = fx.repo();
+    let now = oid(&tip(&fx, "feature"));
+    assert_eq!(file_in(&repo, now, "gone.txt"), None);
+    assert_eq!(
+        file_in(&repo, now, "idx.txt").as_deref(),
+        Some("one\nmain\ntwo\nthree\n")
+    );
+}

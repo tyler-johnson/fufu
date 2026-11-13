@@ -251,6 +251,9 @@ pub fn status_human(view: &StatusView<'_>) -> String {
             ),
             verb => format!("ff {verb}"),
         };
+        // A round whose conflicts all kept your version has no markers to
+        // fix: `ff done` lands it as it stands.
+        let marked = resolving.conflicts > 0;
         // One painted line, no paint nested inside it — an inner reset would
         // end the warn colour for the rest of the line.
         let (line, hint) = if resolving.here {
@@ -259,7 +262,12 @@ pub fn status_human(view: &StatusView<'_>) -> String {
                     "resolving: {} {} from {} {} in your working copy",
                     resolving.conflicts, noun, from, be,
                 ),
-                "fix the markers, then ff done · ff resolve --abandon to drop it".to_string(),
+                if marked {
+                    "fix the markers, then ff done · ff resolve --abandon to drop it"
+                } else {
+                    "ff done lands it as it stands · ff resolve --abandon to drop it"
+                }
+                .to_string(),
             )
         } else {
             (
@@ -268,13 +276,26 @@ pub fn status_human(view: &StatusView<'_>) -> String {
                     resolving.conflicts, noun, from, be, resolving.session,
                 ),
                 format!(
-                    "ff switch {} to fix them · ff resolve --abandon to drop it",
-                    resolving.session
+                    "ff switch {} to {} · ff resolve --abandon to drop it",
+                    resolving.session,
+                    if marked { "fix them" } else { "finish it" }
                 ),
             )
         };
         out.push_str(&paint_warn(&line, colored));
         out.push('\n');
+        if !resolving.kept.is_empty() {
+            out.push_str(&format!(
+                "    your version stands in {} {} that can't take markers: {}\n",
+                resolving.kept.len(),
+                if resolving.kept.len() == 1 {
+                    "file"
+                } else {
+                    "files"
+                },
+                resolving.kept.join(", ")
+            ));
+        }
         out.push_str(&format!("    {hint}\n", hint = paint_dim(&hint, colored)));
     }
     if let Some(held) = &model.held {

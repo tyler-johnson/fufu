@@ -610,6 +610,114 @@ fn restack_resolve_json_carries_the_hold_and_the_session() {
     assert_eq!(head_branch(&fx), session);
 }
 
+/// `feature` deletes `gone.txt` and edits `idx.txt` (or, with `idx` false,
+/// leaves it alone); `main` edits both. Leaves the fixture on `feature`.
+fn modify_delete_stack(fx: &Fixture, idx: bool) {
+    fx.write("gone.txt", "a\nb\n");
+    fx.write("idx.txt", "one\ntwo\n");
+    fx.commit("base");
+    fx.git(&["switch", "-q", "-c", "feature"]);
+    fx.remove("gone.txt");
+    if idx {
+        fx.write("idx.txt", "one\nfeat\ntwo\n");
+    }
+    fx.commit("delete gone, edit idx");
+    fx.git(&["switch", "-q", "main"]);
+    fx.write("gone.txt", "a\nMAIN\n");
+    fx.write("idx.txt", "one\nmain\ntwo\n");
+    fx.commit("main");
+    fx.git(&["switch", "-q", "feature"]);
+}
+
+/// A modify/delete conflict takes no markers: the session keeps the
+/// branch's deletion, names the file apart from the marked ones, and prints
+/// a restore command that brings the base's version back.
+#[test]
+fn restack_resolve_names_a_kept_deletion_with_a_working_restore() {
+    let fx = repo();
+    modify_delete_stack(&fx, true);
+
+    let output = ff(&fx, &["restack", "--onto", "main", "--resolve"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let so = stdout(&output);
+    assert!(
+        so.contains("resolving 1 conflict in idx.txt on ff/"),
+        "the marked file: {so}"
+    );
+    assert!(
+        so.contains("your version stands in 1 file that can't take markers:\n  gone.txt\n"),
+        "the kept block: {so}"
+    );
+    let route = "ff restore gone.txt --from main";
+    assert!(
+        so.contains(&format!("{route} takes main's version instead")),
+        "the route: {so}"
+    );
+    assert!(!fx.path().join("gone.txt").exists(), "the deletion stands");
+
+    let status = stdout(&ff(&fx, &["status"]));
+    assert!(
+        status.contains("your version stands in 1 file that can't take markers: gone.txt"),
+        "{status}"
+    );
+
+    let args: Vec<&str> = route.split(' ').skip(1).collect();
+    let restored = ff(&fx, &args);
+    assert!(restored.status.success(), "{}", out(&restored));
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("gone.txt")).unwrap(),
+        "a\nMAIN\n"
+    );
+}
+
+#[test]
+fn restack_resolve_json_carries_the_kept_files() {
+    let fx = repo();
+    modify_delete_stack(&fx, true);
+    let output = ff(&fx, &["--json", "restack", "--onto", "main", "--resolve"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let v = json(&output);
+    assert_eq!(
+        v["data"]["resolve"]["files"],
+        serde_json::json!(["idx.txt"])
+    );
+    assert_eq!(
+        v["data"]["resolve"]["kept"],
+        serde_json::json!(["gone.txt"])
+    );
+    assert_eq!(v["data"]["resolve"]["restore_from"], "main", "{v}");
+}
+
+/// With every conflict kept there are no markers to name: the session says
+/// what it resolves and that `ff done` lands it, and `ff done` does.
+#[test]
+fn restack_resolve_with_only_a_kept_file_says_done_lands_it() {
+    let fx = repo();
+    modify_delete_stack(&fx, false);
+
+    let output = ff(&fx, &["restack", "--onto", "main", "--resolve"]);
+    assert_eq!(output.status.code(), Some(3), "{}", out(&output));
+    let so = stdout(&output);
+    assert!(
+        so.contains("resolving the held restack on ff/"),
+        "the session's line: {so}"
+    );
+    assert!(!so.contains("0 conflicts"), "{so}");
+    assert!(so.contains("  gone.txt\n"), "the kept block: {so}");
+    assert!(so.contains("ff done lands it as it stands"), "{so}");
+
+    let done = ff(&fx, &["done"]);
+    assert!(done.status.success(), "{}", out(&done));
+    assert_eq!(head_branch(&fx), "feature");
+    assert!(!fx.path().join("gone.txt").exists());
+    assert!(
+        !fx.try_git(&["cat-file", "-e", "feature:gone.txt"])
+            .status
+            .success(),
+        "the deletion landed"
+    );
+}
+
 /// `fufu.onConflict resolve` opens without the flag; `--no-resolve` holds
 /// for one run under it.
 #[test]

@@ -25,13 +25,17 @@ pub(crate) fn render_opened(report: &ResolveReport, colored: bool) {
             crate::render::paint_sha(ff_core::sha::short(stash.as_str()), colored)
         );
     }
-    println!(
-        "resolving {} conflict{} in {} on {}",
-        report.regions,
-        if report.regions == 1 { "" } else { "s" },
-        report.files.join(", "),
-        report.session
-    );
+    if report.files.is_empty() {
+        println!("resolving the held {} on {}", report.verb, report.session);
+    } else {
+        println!(
+            "resolving {} conflict{} in {} on {}",
+            report.regions,
+            if report.regions == 1 { "" } else { "s" },
+            report.files.join(", "),
+            report.session
+        );
+    }
     match (&report.tangled, &report.merging) {
         (Some(subject), _) => println!(
             "    {} of {} commits replayed; the rest waits on \"{}\"",
@@ -40,13 +44,13 @@ pub(crate) fn render_opened(report: &ResolveReport, colored: bool) {
         (None, Some(base)) => println!("    the merge of {base}"),
         (None, None) => println!("    {} commits replayed", report.of),
     }
-    println!(
-        "    {}",
-        crate::render::paint_dim(
-            "fix the markers, then ff done · ff resolve --abandon to drop it",
-            colored
-        )
-    );
+    render_kept_session(&report.kept, report.restore_from.as_deref(), colored);
+    let hint = if report.files.is_empty() {
+        "ff done lands it as it stands · ff resolve --abandon to drop it"
+    } else {
+        "fix the markers, then ff done · ff resolve --abandon to drop it"
+    };
+    println!("    {}", crate::render::paint_dim(hint, colored));
 }
 
 pub fn run(ctx: &Ctx, abandon: bool) -> Result<()> {
@@ -266,6 +270,39 @@ fn render_kept(kept: &[String], whose: &str, colored: bool) {
     if kept.is_empty() {
         return;
     }
+    render_kept_list(kept, colored);
+    println!(
+        "    {}",
+        crate::render::paint_dim(
+            &format!("ff restore <path> takes {whose}'s version instead"),
+            colored
+        )
+    );
+}
+
+/// A session's kept files. The session's own commit holds your version, so the other side comes back through `ff restore --from`, naming the file when there is one. With no revision to name, the list stands alone. Prints nothing when `kept` is empty.
+pub(crate) fn render_kept_session(kept: &[String], from: Option<&str>, colored: bool) {
+    if kept.is_empty() {
+        return;
+    }
+    render_kept_list(kept, colored);
+    if let Some(rev) = from {
+        let path = match kept {
+            [one] => one.as_str(),
+            _ => "<path>",
+        };
+        println!(
+            "    {}",
+            crate::render::paint_dim(
+                &format!("ff restore {path} --from {rev} takes {rev}'s version instead"),
+                colored
+            )
+        );
+    }
+}
+
+/// The header and the paths of a kept block.
+fn render_kept_list(kept: &[String], colored: bool) {
     println!(
         "your version stands in {} file{} that can't take markers:",
         kept.len(),
@@ -277,11 +314,4 @@ fn render_kept(kept: &[String], whose: &str, colored: bool) {
             crate::render::paint_warn(&format!("  {path}"), colored)
         );
     }
-    println!(
-        "    {}",
-        crate::render::paint_dim(
-            &format!("ff restore <path> takes {whose}'s version instead"),
-            colored
-        )
-    );
 }

@@ -34,6 +34,7 @@ fn a_resolve() -> Resolve {
         session: "quiet-otter".into(),
         resolutions: Vec::new(),
         files: vec!["a.txt".into()],
+        kept: Vec::new(),
     }
 }
 
