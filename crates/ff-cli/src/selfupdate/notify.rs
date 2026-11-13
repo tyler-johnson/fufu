@@ -278,9 +278,8 @@ pub fn pending(
 
     // An unresolvable exe cannot be classified; the releases page is the
     // answer that is true for every install.
-    let kind = std::env::current_exe()
+    let kind = crate::selfupdate::resolve_exe()
         .ok()
-        .and_then(|p| p.canonicalize().ok())
         .map(|exe| crate::selfupdate::classify_install(&exe, true))
         .unwrap_or(crate::selfupdate::InstallKind::Unmanaged);
     notice_for(&due, want_notice, current_version, kind)

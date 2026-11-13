@@ -75,63 +75,86 @@ pub enum InstallKind {
     Unmanaged,
 }
 
-/// Resolve the path of the running executable, canonicalizing symlinks.
+/// Canonicalize `path` the one way both sides of [`classify_install_at`]
+/// are resolved. On windows `std::fs::canonicalize` returns a verbatim
+/// `\\?\` path, which never compares equal to the ordinary spelling of the
+/// same file, so it is turned back into that spelling.
+pub(crate) fn canonical(path: &std::path::Path) -> std::io::Result<std::path::PathBuf> {
+    let path = std::fs::canonicalize(path)?;
+    #[cfg(windows)]
+    let path = unverbatim(&path);
+    Ok(path)
+}
+
+/// The ordinary spelling of a verbatim path: `\\?\C:\x` is `C:\x` and
+/// `\\?\UNC\server\share\x` is `\\server\share\x`. Any other path comes back
+/// as it is, including verbatim forms like `\\?\Volume{…}` that have no
+/// ordinary spelling.
+#[cfg(windows)]
+fn unverbatim(path: &std::path::Path) -> std::path::PathBuf {
+    use std::path::{Component, Prefix};
+
+    let mut components = path.components();
+    let Some(Component::Prefix(prefix)) = components.next() else {
+        return path.to_path_buf();
+    };
+    let mut out = match prefix.kind() {
+        Prefix::VerbatimDisk(letter) => std::path::PathBuf::from(format!("{}:", letter as char)),
+        Prefix::VerbatimUNC(server, share) => {
+            let mut unc = std::ffi::OsString::from(r"\\");
+            unc.push(server);
+            unc.push(r"\");
+            unc.push(share);
+            std::path::PathBuf::from(unc)
+        }
+        _ => return path.to_path_buf(),
+    };
+    out.extend(components);
+    out
+}
+
+/// Resolve the path of the running executable through [`canonical`].
 pub fn resolve_exe() -> ff_core::Result<std::path::PathBuf> {
     let path = std::env::current_exe()
         .map_err(|err| ff_core::Error::msg(format!("cannot locate the running binary: {err}")))?;
-    let path = path
-        .canonicalize()
-        .map_err(|err| ff_core::Error::msg(format!("cannot locate the running binary: {err}")))?;
-
-    #[cfg(windows)]
-    {
-        let s = path.to_string_lossy();
-        if let Some(stripped) = s.strip_prefix(r"\\?\") {
-            return Ok(std::path::PathBuf::from(stripped));
-        }
-    }
-
-    Ok(path)
+    canonical(&path)
+        .map_err(|err| ff_core::Error::msg(format!("cannot locate the running binary: {err}")))
 }
 
 /// Where the install script puts the binary: `$HOME/.local/bin/ff` on unix
 /// (`install.sh:12`), `%LOCALAPPDATA%\Programs\ff\ff.exe` on windows
-/// (`install.ps1:11`). Canonicalized when it exists, so the comparison in
-/// [`classify_install_at`] is between two resolved paths.
+/// (`install.ps1:11`). Resolved through [`canonical`] when it exists, the
+/// same as [`resolve_exe`], so the comparison in [`classify_install_at`] is
+/// between two paths spelled the same way.
 ///
 /// `FF_INSTALL_DIR` is deliberately not consulted: an env var that happens
 /// to be exported is not evidence of how this binary got here.
 pub fn script_install_path() -> Option<std::path::PathBuf> {
     #[cfg(windows)]
-    let path = {
-        let local = std::env::var_os("LOCALAPPDATA")?;
-        if local.is_empty() {
-            return None;
-        }
-        std::path::PathBuf::from(local)
-            .join("Programs")
-            .join("ff")
-            .join("ff.exe")
-    };
+    let root = std::env::var_os("LOCALAPPDATA")?;
     #[cfg(not(windows))]
-    let path = {
-        let home = std::env::var_os("HOME")?;
-        if home.is_empty() {
-            return None;
-        }
-        std::path::PathBuf::from(home)
-            .join(".local")
-            .join("bin")
-            .join("ff")
-    };
+    let root = std::env::var_os("HOME")?;
+    if root.is_empty() {
+        return None;
+    }
+    Some(script_install_path_under(std::path::Path::new(&root)))
+}
 
-    Some(path.canonicalize().unwrap_or(path))
+/// [`script_install_path`] with its root injected: `LOCALAPPDATA` on
+/// windows, `HOME` everywhere else.
+fn script_install_path_under(root: &std::path::Path) -> std::path::PathBuf {
+    #[cfg(windows)]
+    let path = root.join("Programs").join("ff").join("ff.exe");
+    #[cfg(not(windows))]
+    let path = root.join(".local").join("bin").join("ff");
+
+    canonical(&path).unwrap_or(path)
 }
 
 /// The testable core: classify with the install-script path injected.
 ///
-/// Both paths are expected to be canonicalized already; an empty
-/// `script_path` (no HOME) matches nothing.
+/// Both paths are expected to have gone through [`canonical`] already; an
+/// empty `script_path` (no HOME) matches nothing.
 pub fn classify_install_at(
     exe: &std::path::Path,
     official: bool,
@@ -323,6 +346,90 @@ mod tests {
             classify_install_at(Path::new(SCRIPT), true, Path::new("")),
             InstallKind::Unmanaged,
         );
+    }
+
+    // ------------------------------------------------------------------
+    // canonical — both sides of the comparison spelled the same way
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn classify_a_real_file_against_itself_is_script() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let exe = tmp.path().join("ff");
+        std::fs::write(&exe, b"").unwrap();
+        assert_eq!(
+            classify_install_at(&canonical(&exe).unwrap(), true, &canonical(&exe).unwrap()),
+            InstallKind::Script,
+        );
+    }
+
+    #[test]
+    fn canonical_resolves_a_parent_component() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir(tmp.path().join("sub")).unwrap();
+        let exe = tmp.path().join("ff");
+        std::fs::write(&exe, b"").unwrap();
+        let roundabout = tmp.path().join("sub").join("..").join("ff");
+        assert_eq!(canonical(&roundabout).unwrap(), canonical(&exe).unwrap());
+    }
+
+    #[test]
+    fn script_install_path_under_a_root_without_the_file_is_the_join() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = script_install_path_under(tmp.path());
+        assert!(path.starts_with(tmp.path()), "{}", path.display());
+        assert!(!path.exists(), "{}", path.display());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn canonical_is_not_verbatim_on_windows() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let exe = tmp.path().join("ff.exe");
+        std::fs::write(&exe, b"").unwrap();
+        let resolved = canonical(&exe).unwrap();
+        assert!(
+            !resolved.to_string_lossy().starts_with(r"\\?\"),
+            "{}",
+            resolved.display()
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn classify_the_install_ps1_path_is_script_on_windows() {
+        // #21: the exe was stripped of `\\?\` and the script path was not.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let dir = tmp.path().join("Programs").join("ff");
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("ff.exe");
+        std::fs::write(&exe, b"").unwrap();
+
+        assert_eq!(
+            classify_install_at(&canonical(&exe).unwrap(), true, &canonical(&exe).unwrap()),
+            InstallKind::Script,
+        );
+        assert_eq!(
+            classify_install_at(
+                &canonical(&exe).unwrap(),
+                true,
+                &script_install_path_under(tmp.path())
+            ),
+            InstallKind::Script,
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn unverbatim_gives_the_ordinary_spelling() {
+        assert_eq!(unverbatim(Path::new(r"\\?\C:\a\b")).as_os_str(), r"C:\a\b");
+        assert_eq!(
+            unverbatim(Path::new(r"\\?\UNC\srv\share\a")).as_os_str(),
+            r"\\srv\share\a"
+        );
+        assert_eq!(unverbatim(Path::new(r"C:\a\b")).as_os_str(), r"C:\a\b");
+        let volume = r"\\?\Volume{0b1c2d3e-0000-0000-0000-000000000000}\a";
+        assert_eq!(unverbatim(Path::new(volume)).as_os_str(), volume);
     }
 
     #[test]
