@@ -118,6 +118,36 @@ fn an_id_collision_takes_the_next_number() {
     assert!(repo.common_dir().join("worktrees").join("bay1").is_dir());
 }
 
+/// A directory name a ref cannot hold is sanitized the way git does it: the
+/// id is `has-space`, and the directory keeps its name.
+#[test]
+fn a_directory_with_a_space_is_filed_under_a_sanitized_id() {
+    let fx = Fixture::new();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    fx.git(&["branch", "side"]);
+
+    let dest = fx.root().join("has space");
+    let repo = fx.repo();
+    let created = ff_core::linked::add::create(&repo, &dest, "side", 0).expect("create");
+
+    assert_eq!(created.id, "has-space");
+    assert!(dest.is_dir(), "the directory keeps its name");
+    assert!(
+        repo.common_dir()
+            .join("worktrees")
+            .join("has-space")
+            .is_dir()
+    );
+    let list = fx.git(&["worktree", "list", "--porcelain"]);
+    assert!(
+        listed(&list)
+            .iter()
+            .any(|path| ff_testsupport::paths::is(path, &created.path)),
+        "git worktree list does not name it:\n{list}"
+    );
+}
+
 /// A checkout whose basename is `main` does not take the main worktree's
 /// chain: it is filed under `main1` and reads back as `main1`.
 #[test]

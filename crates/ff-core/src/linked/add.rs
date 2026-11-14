@@ -371,8 +371,9 @@ pub(crate) fn destination_free(path: &Path) -> Result<()> {
     }
 }
 
-/// The id is the destination's file name, with the smallest numeric suffix
-/// from 1 when that name is `main` or already filed under.
+/// The id is the destination's file name sanitized as git sanitizes it, with
+/// the smallest numeric suffix from 1 when that is `main` or already filed
+/// under.
 fn pick_id(path: &Path, common: &Path) -> Result<String> {
     let base = path
         .file_name()
@@ -385,6 +386,7 @@ fn pick_id(path: &Path, common: &Path) -> Result<String> {
             )
         })?;
 
+    let base = sanitize_id(&base);
     let worktrees = common.join("worktrees");
     if base != crate::linked::MAIN_ID && !worktrees.join(&base).exists() {
         return Ok(base);
@@ -397,6 +399,26 @@ fn pick_id(path: &Path, common: &Path) -> Result<String> {
         }
         n += 1;
     }
+}
+
+/// A file name as a ref component, the way git's `sanitize_refname_component`
+/// makes one.
+fn sanitize_id(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for c in name.chars() {
+        let bad = c.is_ascii_control()
+            || matches!(c, ' ' | '~' | '^' | ':' | '?' | '*' | '[' | '\\')
+            || (c == '.' && (out.is_empty() || out.ends_with('.')))
+            || (c == '{' && out.ends_with('@'));
+        out.push(if bad { '-' } else { c });
+    }
+    while let Some(stripped) = out.strip_suffix(".lock") {
+        out.truncate(stripped.len());
+    }
+    if out.is_empty() {
+        out.push('-');
+    }
+    out
 }
 
 /// Write the layout, open the worktree through gix, and check the given
@@ -499,4 +521,24 @@ pub(crate) fn materialize(repo: &gix::Repository, layout: Layout<'_>, now: i64) 
         branch: branch.to_string(),
         head,
     })
+}
+
+#[cfg(test)]
+mod sanitize_tests {
+    use super::sanitize_id;
+
+    #[test]
+    fn sanitizes_as_git_does() {
+        for (raw, want) in [
+            ("has space", "has-space"),
+            (".hidden", "-hidden"),
+            ("a..b", "a.-b"),
+            ("x@{y", "x@-y"),
+            ("foo.lock", "foo"),
+            ("a:b?c", "a-b-c"),
+            ("café", "café"),
+        ] {
+            assert_eq!(sanitize_id(raw), want, "{raw:?}");
+        }
+    }
 }

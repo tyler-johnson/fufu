@@ -538,3 +538,71 @@ fn a_path_and_delete_together_are_a_usage_error() {
     let out = ff(&fx, &["worktree", "bay", "-d", "bay"]);
     assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
 }
+
+/// A directory name with a space files under a sanitized id, and the whole
+/// family works on it.
+#[test]
+fn a_directory_with_a_space_gets_a_sanitized_id() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    let dir = fx.root().join("has space");
+    ok(&fx, &["worktree", dir.to_str().unwrap()]);
+
+    let v = json(&ff(&fx, &["worktree", "--json"]));
+    let rows = v["data"]["worktrees"].as_array().expect("worktrees array");
+    assert!(rows.iter().any(|w| w["id"] == "has-space"), "the row: {v}");
+
+    ok_at(&dir, &["trigger", "-m", "cp"]);
+    ok(&fx, &["worktree", "-d", dir.to_str().unwrap()]);
+    assert!(!dir.exists(), "the checkout is gone: {dir:?}");
+}
+
+/// A worktree fufu 0.19.3 filed under an id with a space keeps working: the
+/// listing, a capture, removal, and the undo of the removal.
+#[test]
+fn a_worktree_filed_under_an_invalid_id_still_works() {
+    let fx = repo();
+    fx.write("a.txt", "a\n");
+    fx.commit("init");
+    let dir = fx.root().join("has space");
+    ok(&fx, &["worktree", dir.to_str().unwrap()]);
+
+    // Rebuild the 0.19.3 layout: the admin dir under the raw name.
+    let admin = fx.path().join(".git").join("worktrees");
+    let renamed = admin.join("has space");
+    std::fs::rename(admin.join("has-space"), &renamed).expect("rename the admin dir");
+    std::fs::write(dir.join(".git"), format!("gitdir: {}\n", renamed.display()))
+        .expect("rewrite the .git file");
+
+    let v = json(&ff(&fx, &["worktree", "--json"]));
+    let rows = v["data"]["worktrees"].as_array().expect("worktrees array");
+    assert!(rows.iter().any(|w| w["id"] == "has space"), "the row: {v}");
+
+    std::fs::write(dir.join("new.txt"), "work\n").expect("write in the checkout");
+    let output = ff_at(&dir, &["trigger", "-m", "cp"]);
+    assert!(output.status.success(), "trigger: {}", out(&output));
+    assert!(
+        !stderr(&output).contains("capture skipped"),
+        "capture skipped: {}",
+        stderr(&output)
+    );
+    let refs = fx.git(&["for-each-ref", "refs/fufu/wt/has%20space/ops"]);
+    assert!(
+        refs.contains("refs/fufu/wt/has%20space/ops"),
+        "ref: {refs} all: {}",
+        fx.git(&["for-each-ref", "refs/fufu"])
+    );
+
+    ok(&fx, &["worktree", "-d", dir.to_str().unwrap()]);
+    assert!(!dir.exists(), "the checkout is gone: {dir:?}");
+    let v = json(&ff(&fx, &["worktree", "--json"]));
+    let orphans = v["data"]["orphans"].as_array().expect("orphans array");
+    assert!(
+        orphans.iter().any(|o| o["id"] == "has space"),
+        "orphan: {v}"
+    );
+
+    ok(&fx, &["undo"]);
+    assert!(dir.exists(), "undo brings the checkout back: {dir:?}");
+}

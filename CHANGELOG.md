@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- [`ff worktree`](docs/reference/cli/worktree.md) filed a checkout whose directory name holds a byte a ref cannot, such as a space, under that name, and then the listing, captures inside it, and `-d` failed with "Reference name contains invalid byte". A new worktree's ID is now its directory name sanitized as git sanitizes it (`has space` becomes `has-space`), and a worktree already filed under such a name keeps working: its chain is stored under a percent-encoded ref (`refs/fufu/wt/has%20space/ops`). (#27)
+
 ## v0.19.3 — 2026-11-13
 
 ### Fixed

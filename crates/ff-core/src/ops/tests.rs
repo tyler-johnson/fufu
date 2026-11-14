@@ -782,3 +782,31 @@ fn the_verb_walk_is_the_log_walk_without_the_captures() {
         filtered.len()
     );
 }
+
+#[test]
+fn chain_component_leaves_valid_ids_alone() {
+    for id in ["main", "feature-x", "café"] {
+        assert!(matches!(chain_component(id), std::borrow::Cow::Borrowed(c) if c == id));
+    }
+}
+
+#[test]
+fn chain_component_encodes_invalid_ids() {
+    for (id, want) in [
+        ("has space", "has%20space"),
+        ("a..b", "a%2E%2Eb"),
+        (".hidden", "%2Ehidden"),
+        ("x.lock", "x%2Elock"),
+    ] {
+        assert_eq!(chain_component(id), want);
+        let _: gix::refs::FullName = ops_ref(id).as_str().try_into().unwrap();
+        let _: gix::refs::FullName = ops_trash_ref(id).as_str().try_into().unwrap();
+    }
+}
+
+#[test]
+fn chain_raw_id_inverts_the_encoding() {
+    assert_eq!(chain_raw_id("has%20space"), "has space");
+    assert_eq!(chain_raw_id("100%"), "100%");
+    assert_eq!(chain_raw_id("a%2"), "a%2");
+}

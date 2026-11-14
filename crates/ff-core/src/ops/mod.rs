@@ -112,12 +112,68 @@ pub fn chain_id(repo: &gix::Repository) -> String {
 
 /// One chain's tip ref.
 pub fn ops_ref(chain: &str) -> String {
-    format!("{WT_PREFIX}{chain}/ops")
+    format!("{WT_PREFIX}{}/ops", chain_component(chain))
 }
 
 /// Where trim parks that chain's pre-trim tip — the last trim's own undo.
 pub fn ops_trash_ref(chain: &str) -> String {
-    format!("{WT_PREFIX}{chain}/trash/@ops")
+    format!("{WT_PREFIX}{}/trash/@ops", chain_component(chain))
+}
+
+/// The ref component a chain id is stored under.
+///
+/// An id fufu 0.19.3 or a pre-2.24 git filed with a byte a ref cannot hold
+/// (a space, say) is stored percent-encoded; every id valid as a ref
+/// component is stored as itself. One known limit: a live worktree literally
+/// named with the encoded spelling (for example `has%20space`) and one named
+/// `has space` would share a chain.
+fn chain_component(id: &str) -> std::borrow::Cow<'_, str> {
+    let parses = |name: String| gix::refs::FullName::try_from(name.as_str()).is_ok();
+    if parses(format!("{WT_PREFIX}{id}/ops")) && parses(format!("{WT_PREFIX}{id}/trash/@ops")) {
+        return std::borrow::Cow::Borrowed(id);
+    }
+    let mut out = String::with_capacity(id.len() * 3);
+    for byte in id.bytes() {
+        if byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-' {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    std::borrow::Cow::Owned(out)
+}
+
+/// The raw id a stored component stands for: the inverse of
+/// [`chain_component`], or the component itself when it is not one's
+/// encoding.
+fn chain_raw_id(component: &str) -> String {
+    if !component.contains('%') {
+        return component.to_string();
+    }
+    let bytes = component.as_bytes();
+    let mut raw: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = bytes
+                .get(i + 1..i + 3)
+                .and_then(|h| std::str::from_utf8(h).ok());
+            match hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
+                Some(b) => raw.push(b),
+                None => return component.to_string(),
+            }
+            i += 3;
+        } else {
+            raw.push(bytes[i]);
+            i += 1;
+        }
+    }
+    match String::from_utf8(raw) {
+        Ok(raw) if matches!(chain_component(&raw), std::borrow::Cow::Owned(ref c) if c == component) => {
+            raw
+        }
+        _ => component.to_string(),
+    }
 }
 
 /// This worktree's chain tip ref.
@@ -155,8 +211,9 @@ pub fn chain_ids(repo: &gix::Repository) -> Result<Vec<String>> {
         let Some((id, _)) = rest.split_once('/') else {
             continue;
         };
-        if !out.iter().any(|seen| seen == id) {
-            out.push(id.to_string());
+        let id = chain_raw_id(id);
+        if !out.contains(&id) {
+            out.push(id);
         }
     }
     out.sort();
